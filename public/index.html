@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#071b35">
+    <meta name="description" content="Golden Plate Catering — thoughtful food, welcoming tables, and care for every gathering.">
+    <meta property="og:title" content="Golden Plate Catering">
+    <meta property="og:description" content="Golden Plate, Karibu Dala — thoughtful food and welcoming tables for every gathering.">
+    <meta property="og:type" content="website">
+    <title>Golden Plate Catering</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/site-config.js" defer></script>
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <header class="site-header" data-site-header>
+      <div class="container nav-shell">
+        <a class="brand" href="/" data-nav aria-label="Golden Plate Catering home">
+          <img class="brand-logo" src="/assets/logo.png" width="537" height="393" alt="">
+        </a>
+        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="primary-nav">
+          <span class="sr-only">Toggle menu</span>
+          <span class="menu-line"></span><span class="menu-line"></span>
+        </button>
+        <nav class="primary-nav" id="primary-nav" aria-label="Primary navigation">
+          <a href="/about/" data-nav>About</a>
+          <a href="/services/" data-nav>Services</a>
+          <a href="/work/" data-nav>Our work</a>
+          <a href="/menu/" data-nav>Food</a>
+          <a href="/reviews/" data-nav>Reviews</a>
+        </nav>
+        <a class="button button-small nav-cta" href="/contact/" data-nav>Get a quote <span aria-hidden="true">↗</span></a>
+      </div>
+    </header>
+
+    <main id="main-content" tabindex="-1"></main>
+
+    <footer class="site-footer">
+      <div class="container footer-grid">
+        <div class="footer-brand">
+          <a class="brand brand-light" href="/" data-nav>
+            <img class="brand-logo brand-logo-footer" src="/assets/logo.png" width="537" height="393" alt="Golden Plate Catering">
+          </a>
+          <p class="footer-note">Golden Plate, Karibu Dala — thoughtful food and a warm welcome for every gathering.</p>
+        </div>
+        <div>
+          <p class="footer-label">Explore</p>
+          <nav class="footer-links" aria-label="Footer navigation">
+            <a href="/about/" data-nav>About</a>
+            <a href="/services/" data-nav>Services</a>
+            <a href="/work/" data-nav>Our work</a>
+            <a href="/menu/" data-nav>Food</a>
+            <a href="/contact/" data-nav>Get a quote</a>
+          </nav>
+        </div>
+        <div>
+          <p class="footer-label">Stay connected</p>
+          <div class="social-links" data-social-links>
+            <span class="muted-small">Find Golden Plate online soon.</span>
+          </div>
+          <a class="footer-privacy" href="/privacy/" data-nav>Privacy &amp; data</a>
+        </div>
+      </div>
+      <div class="container footer-bottom">
+        <span>© <span data-year></span> Golden Plate Catering</span>
+        <span class="footer-status">Golden Plate, Karibu Dala</span>
+      </div>
+    </footer>
+
+    <dialog class="media-dialog" data-media-dialog aria-label="Media viewer">
+      <div class="media-dialog-inner">
+        <button class="dialog-close" type="button" data-dialog-close aria-label="Close media viewer">×</button>
+        <button class="dialog-arrow dialog-prev" type="button" data-dialog-prev aria-label="Previous item">←</button>
+        <div class="dialog-media" data-dialog-media></div>
+        <button class="dialog-arrow dialog-next" type="button" data-dialog-next aria-label="Next item">→</button>
+        <div class="dialog-caption" data-dialog-caption></div>
+      </div>
+    </dialog>
+
+    <div class="toast" data-toast role="status" aria-live="polite"></div>
+  </body>
+</html>

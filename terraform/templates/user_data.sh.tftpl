@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y ca-certificates curl gnupg nginx certbot python3-certbot-nginx tar unzip
+
+curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg
+echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" >/etc/apt/sources.list.d/nodesource.list
+apt-get update -y
+apt-get install -y nodejs
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+unzip -q /tmp/awscliv2.zip -d /tmp
+/tmp/aws/install
+rm -rf /tmp/aws /tmp/awscliv2.zip
+
+if ! systemctl is-active --quiet snapd; then
+  apt-get install -y snapd
+fi
+snap install amazon-ssm-agent --classic || true
+systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service || true
+
+install -d -o root -g root -m 0755 /opt/golden-plate
+aws s3 cp "s3://${deployment_bucket}/${deployment_key}" /tmp/golden-plate.tar.gz --region "${aws_region}"
+tar -xzf /tmp/golden-plate.tar.gz -C /opt/golden-plate
+rm /tmp/golden-plate.tar.gz
+cd /opt/golden-plate
+npm install --omit=dev
+
+cat >/usr/local/bin/golden-plate-env <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+MONGO_URI=$(aws ssm get-parameter --name /golden-plate-catering/production/mongodb_uri --with-decryption --region "${aws_region}" --query Parameter.Value --output text)
+ADMIN_USERNAME=$(aws ssm get-parameter --name /golden-plate-catering/production/admin_username --with-decryption --region "${aws_region}" --query Parameter.Value --output text)
+ADMIN_PASSWORD=$(aws ssm get-parameter --name /golden-plate-catering/production/admin_password --with-decryption --region "${aws_region}" --query Parameter.Value --output text)
+printf 'PORT=%q\nHOST=%q\nMONGODB_URI=%q\nMONGODB_DB=%q\nADMIN_USERNAME=%q\nADMIN_PASSWORD=%q\n' \
+  3000 127.0.0.1 "$MONGO_URI" golden_plate_catering "$ADMIN_USERNAME" "$ADMIN_PASSWORD" \
+  >/run/golden-plate.env
+chmod 0600 /run/golden-plate.env
+SCRIPT
+chmod 0755 /usr/local/bin/golden-plate-env
+
+cat >/usr/local/sbin/golden-plate-start <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+/usr/local/bin/golden-plate-env
+set -a
+source /run/golden-plate.env
+exec /usr/bin/node /opt/golden-plate/server.mjs
+SCRIPT
+chmod 0755 /usr/local/sbin/golden-plate-start
+
+cat >/etc/systemd/system/golden-plate.service <<'UNIT'
+[Unit]
+Description=Golden Plate Catering web application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/golden-plate
+ExecStart=/usr/local/sbin/golden-plate-start
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+cat >/etc/nginx/sites-available/golden-plate <<'NGINX'
+server {
+  listen 80 default_server;
+  listen [::]:80 default_server;
+  server_name goldenplatecatering.duckdns.org;
+
+  location / {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+}
+NGINX
+ln -sf /etc/nginx/sites-available/golden-plate /etc/nginx/sites-enabled/golden-plate
+rm -f /etc/nginx/sites-enabled/default
+
+cat >/usr/local/sbin/enable-golden-plate-tls <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+certbot --nginx --non-interactive --agree-tos --redirect --email "${certbot_email}" -d goldenplatecatering.duckdns.org
+SCRIPT
+chmod 0700 /usr/local/sbin/enable-golden-plate-tls
+
+nginx -t
+systemctl daemon-reload
+systemctl enable --now golden-plate.service nginx

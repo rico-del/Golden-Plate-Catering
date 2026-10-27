@@ -1,0 +1,15 @@
+aws_region                = "af-south-1"
+availability_zone         = "af-south-1a"
+elastic_ip_allocation_id  = "eipalloc-0123456789abcdef0"
+deployment_bucket_name    = "replace-with-a-globally-unique-golden-plate-deployments-bucket"
+certbot_email             = "you@example.com"
+atlas_region_name         = "EU_WEST_1"
+
+# Set these as TF_VAR_* environment variables, never commit them in a tfvars file:
+# atlas_org_id
+# atlas_database_username
+# atlas_database_password
+# admin_username
+# admin_password
+# MONGODB_ATLAS_PUBLIC_KEY
+# MONGODB_ATLAS_PRIVATE_KEY

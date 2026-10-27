@@ -25,7 +25,7 @@ async function request(handler, route, options = {}) {
     socket: { remoteAddress: "test-client" },
     async *[Symbol.asyncIterator]() { if (body) yield Buffer.from(body); }
   };
-  const response = { statusCode: 200, headers: {}, body: "", setHeader(name, value) { this.headers[name.toLowerCase()] = value; }, writeHead(statusCode, headers = {}) { this.statusCode = statusCode; for (const [name, value] of Object.entries(headers)) this.setHeader(name, value); }, end(value = "") { this.body += value.toString(); } };
+  const response = { statusCode: 200, headers: {}, body: "", setHeader(name, value) { this.headers[name.toLowerCase()] = value; }, writeHead(statusCode, headers = {}) { this.statusCode = statusCode; for (const [name, value] of Object.entries(headers)) this.headers[name.toLowerCase()] = value; }, end(chunk) { this.body += chunk ? chunk.toString() : ""; } };
   await handler(request, response);
   return { response, body: JSON.parse(response.body || "{}") };
 }
@@ -63,28 +63,29 @@ test("review submissions persist as pending and require authenticated moderation
   });
 });
 
-test("enquiries validate and are only reported received after persistence", async () => {
+test("enquiries validate and can be tracked through admin status updates", async () => {
   await withServer(async (handler, dataDir) => {
     let result = await request(handler, "/api/enquiries", { method: "POST", body: JSON.stringify({ name: "Nia", message: "Too short" }) });
     assert.equal(result.response.statusCode, 422);
     assert.ok(result.body.errors.contact);
     assert.ok(result.body.errors.message);
 
-    result = await request(handler, "/api/enquiries", { method: "POST", body: JSON.stringify({ name: "Nia", email: "not-an-email", phone: "0712345678", message: "I would like to discuss catering for an upcoming gathering." }) });
+    result = await request(handler, "/api/enquiries", { method: "POST", body: JSON.stringify({ name: "Nia", email: "not-an-email", phone: "0712345678", message: "I would like to discuss catering for an upcoming gathering and need a menu quote." }) });
     assert.equal(result.response.statusCode, 422);
     assert.ok(result.body.errors.email);
     assert.ok(result.body.errors.phone);
 
-    result = await request(handler, "/api/enquiries", { method: "POST", body: JSON.stringify({ name: "Nia", phone: "+254712345678", message: "I would like to discuss catering for an upcoming gathering." }) });
+    result = await request(handler, "/api/enquiries", { method: "POST", body: JSON.stringify({ name: "Nia", phone: "+254712345678", message: "I would like to discuss catering for an upcoming gathering and need a menu quote." }) });
     assert.equal(result.response.statusCode, 201);
+    assert.equal(result.body.status, "new");
 
-    result = await request(handler, "/api/enquiries", { method: "POST", body: JSON.stringify({ name: "Nia", email: "nia@example.com", message: "I would like to discuss catering for an upcoming gathering." }) });
+    result = await request(handler, "/api/enquiries", { method: "POST", body: JSON.stringify({ name: "Nia", email: "nia@example.com", message: "I would like to discuss catering for an upcoming gathering and need a menu quote." }) });
     assert.equal(result.response.statusCode, 201);
-    assert.equal(result.body.status, "received");
+    assert.equal(result.body.status, "new");
     assert.match(result.body.message, /not a booking confirmation/);
     const enquiries = JSON.parse(await fs.readFile(path.join(dataDir, "enquiries.json"), "utf8"));
     assert.equal(enquiries.length, 2);
-    assert.equal(enquiries[1].status, "received");
+    assert.equal(enquiries[1].status, "new");
 
     result = await request(handler, "/api/admin/enquiries");
     assert.equal(result.response.statusCode, 401);
@@ -92,5 +93,15 @@ test("enquiries validate and are only reported received after persistence", asyn
     result = await request(handler, "/api/admin/enquiries", { headers: { authorization: auth } });
     assert.equal(result.response.statusCode, 200);
     assert.equal(result.body.enquiries.length, 2);
+    assert.equal(result.body.enquiries[0].status, "new");
+
+    const enquiryId = result.body.enquiries[0].id;
+    result = await request(handler, `/api/admin/enquiries/${enquiryId}`, { method: "PATCH", headers: { authorization: auth }, body: JSON.stringify({ status: "quoted" }) });
+    assert.equal(result.response.statusCode, 200);
+    assert.equal(result.body.status, "quoted");
+
+    result = await request(handler, "/api/admin/enquiries", { headers: { authorization: auth } });
+    assert.equal(result.response.statusCode, 200);
+    assert.equal(result.body.enquiries[0].status, "quoted");
   });
 });

@@ -38,6 +38,7 @@ const LIMITS = {
 };
 
 const ALLOWED_REVIEW_STATUSES = new Set(["approved", "rejected", "pending"]);
+const ALLOWED_ENQUIRY_STATUSES = new Set(["new", "contacted", "quoted", "booked", "closed"]);
 
 function loadLocalEnv() {
   try {
@@ -45,7 +46,7 @@ function loadLocalEnv() {
     for (const line of contents.split(/\r?\n/)) {
       const match = line.match(/^\s*([A-Z][A-Z0-9_]*)\s*=\s*(.*)\s*$/);
       if (!match || process.env[match[1]]) continue;
-      const value = match[2].replace(/^(["'])(.*)\1$/, "$2");
+      const value = match[2].replace(/^(?:["'])(.*)\1$/, "$1");
       process.env[match[1]] = value;
     }
   } catch {
@@ -92,7 +93,7 @@ function jsonResponse(res, status, payload, extraHeaders = {}) {
 
 function securityHeaders() {
   return {
-    "Content-Security-Policy": "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; media-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'",
+    "Content-Security-Policy": "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; media-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none';",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "X-Content-Type-Options": "nosniff",
@@ -146,7 +147,15 @@ function createPersistence({ dataDir, mongoUri, mongoDbName }) {
         return true;
       },
       listEnquiries: () => readJson(enquiriesPath),
-      async createEnquiry(enquiry) { const enquiries = await readJson(enquiriesPath); enquiries.push(enquiry); await writeJson(enquiriesPath, enquiries); }
+      async createEnquiry(enquiry) { const enquiries = await readJson(enquiriesPath); enquiries.push(enquiry); await writeJson(enquiriesPath, enquiries); },
+      async updateEnquiry(id, changes) {
+        const enquiries = await readJson(enquiriesPath);
+        const index = enquiries.findIndex((enquiry) => enquiry.id === id);
+        if (index < 0) return false;
+        enquiries[index] = { ...enquiries[index], ...changes };
+        await writeJson(enquiriesPath, enquiries);
+        return true;
+      }
     };
   }
 
@@ -168,7 +177,8 @@ function createPersistence({ dataDir, mongoUri, mongoDbName }) {
     updateReview: async (id, changes) => (await database.collection("reviews").updateOne({ id }, { $set: changes })).matchedCount === 1,
     deleteReview: async (id) => (await database.collection("reviews").deleteOne({ id })).deletedCount === 1,
     listEnquiries: () => database.collection("enquiries").find({}, { projection: { _id: 0 } }).sort({ submittedAt: -1 }).toArray(),
-    createEnquiry: (enquiry) => database.collection("enquiries").insertOne(enquiry)
+    createEnquiry: (enquiry) => database.collection("enquiries").insertOne(enquiry),
+    updateEnquiry: async (id, changes) => (await database.collection("enquiries").updateOne({ id }, { $set: changes })).matchedCount === 1
   };
 }
 
@@ -378,8 +388,9 @@ export function createServer(options = {}) {
         if (cleanText(input.website, 200)) return jsonResponse(res, 400, { error: "Invalid submission." });
         const { errors, value } = validateEnquiry(input);
         if (Object.keys(errors).length) return jsonResponse(res, 422, { errors });
-        await persistence.createEnquiry({ id: crypto.randomUUID(), ...value, status: "received", submittedAt: new Date().toISOString() });
-        return jsonResponse(res, 201, { status: "received", message: "Your enquiry was saved. This is not a booking confirmation." });
+        const enquiry = { id: crypto.randomUUID(), ...value, status: "new", submittedAt: new Date().toISOString() };
+        await persistence.createEnquiry(enquiry);
+        return jsonResponse(res, 201, { status: "new", message: "Your enquiry was saved. This is not a booking confirmation." });
       }
 
       if (url.pathname === "/api/admin/reviews" && method === "GET") {
@@ -391,7 +402,7 @@ export function createServer(options = {}) {
       if (url.pathname === "/api/admin/enquiries" && method === "GET") {
         if (!authorizeAdmin(req, config)) return adminRequired(res);
         const enquiries = await persistence.listEnquiries();
-        return jsonResponse(res, 200, { enquiries });
+        return jsonResponse(res, 200, { enquiries: enquiries.sort((a, b) => String(b.submittedAt || "").localeCompare(String(a.submittedAt || ""))) });
       }
 
       const moderationMatch = url.pathname.match(/^\/api\/admin\/reviews\/([^/]+)$/);
@@ -406,6 +417,16 @@ export function createServer(options = {}) {
         if (!ALLOWED_REVIEW_STATUSES.has(status)) return jsonResponse(res, 422, { error: "Invalid review status." });
         const changes = status === "approved" ? { status, approvedAt: new Date().toISOString() } : { status, approvedAt: null };
         if (!await persistence.updateReview(moderationMatch[1], changes)) return jsonResponse(res, 404, { error: "Review not found." });
+        return jsonResponse(res, 200, { status });
+      }
+
+      const enquiryModerationMatch = url.pathname.match(/^\/api\/admin\/enquiries\/([^/]+)$/);
+      if (enquiryModerationMatch && method === "PATCH") {
+        if (!authorizeAdmin(req, config)) return adminRequired(res);
+        const input = await readRequestBody(req);
+        const status = cleanText(input.status, 20);
+        if (!ALLOWED_ENQUIRY_STATUSES.has(status)) return jsonResponse(res, 422, { error: "Invalid enquiry status." });
+        if (!await persistence.updateEnquiry(enquiryModerationMatch[1], { status })) return jsonResponse(res, 404, { error: "Enquiry not found." });
         return jsonResponse(res, 200, { status });
       }
 

@@ -11,6 +11,7 @@ let modalIndex = 0;
 let previousFocus = null;
 let toastTimer;
 let activePath = "/";
+let adminSession = null;
 
 const routes = {
   "/": renderHome,
@@ -20,7 +21,8 @@ const routes = {
   "/menu/": renderMenu,
   "/reviews/": renderReviews,
   "/contact/": renderContact,
-  "/privacy/": renderPrivacy
+  "/privacy/": renderPrivacy,
+  "/admin/": renderAdmin
 };
 
 function escapeHtml(value) {
@@ -66,11 +68,11 @@ function button(path, label, className = "") {
 function mediaCard(item, className = "") {
   const mediaType = item.type === "video" ? "Video" : "Image";
   const playMark = item.type === "video" ? `<span class="play-mark" aria-hidden="true">▶</span>` : "";
-  return `<button class="media-card ${className}" type="button" data-media-trigger data-media-id="${escapeHtml(item.id)}" aria-label="Open ${escapeHtml(item.title)} in media viewer"><img src="${escapeHtml(item.poster || item.file)}" alt="${escapeHtml(item.alt || item.title)}" loading="lazy" width="${item.width || 1600}" height="${item.height || 720}"><span class="media-card-overlay"><span>${mediaType} · ${escapeHtml(item.category || "work")}</span><strong>${escapeHtml(item.title)}</strong></span>${playMark}</button>`;
+  return `<button class="media-card ${className}" type="button" data-media-trigger data-media-id="${escapeHtml(item.id)}" aria-label="Open ${escapeHtml(item.title)} in media viewer"><img src="${escapeHtml(item.file)}" alt="${escapeHtml(item.alt || item.title)}" loading="lazy" width="${item.width || 800}" height="${item.height || 600}">${playMark}<span class="media-card-label">${escapeHtml(mediaType)}</span></button>`;
 }
 
 function foodCard(item) {
-  return `<figure class="food-card food-card-${escapeHtml(item.id)}"><div class="food-media"><img src="${escapeHtml(item.file)}" alt="${escapeHtml(item.alt)}" loading="lazy" width="${item.width}" height="${item.height}"></div><figcaption>${escapeHtml(item.title)}</figcaption></figure>`;
+  return `<figure class="food-card food-card-${escapeHtml(item.id)}"><div class="food-media"><img src="${escapeHtml(item.file)}" alt="${escapeHtml(item.alt)}" loading="lazy" width="${item.width}" height="${item.height}"></div><figcaption><h3>${escapeHtml(item.title)}</h3></figcaption></figure>`;
 }
 
 function workPreview(items = assets.work.slice(0, 4)) {
@@ -99,75 +101,199 @@ function renderHome() {
   </section>
   <section class="section section-white"><div class="container intro-grid">
     <div class="display-image"><img src="/assets/dining_gazebo_1.png" alt="Round tables and covered chairs arranged inside a black and gold dining gazebo" width="1600" height="720" loading="lazy"></div>
-    <div class="intro-copy"><div class="content-kicker">The story behind the table</div><h2>Food, atmosphere, and a place to arrive.</h2><p>At Golden Plate, every table is prepared with a warm welcome in mind. Browse the food and event setups that have brought past gatherings to life.</p>${button("/about/", "Read the about page", "button-outline")}</div>
+    <div class="intro-copy"><div class="content-kicker">The story behind the table</div><h2>Food, atmosphere, and a place to arrive.</h2><p>At Golden Plate, every table is prepared with a warm welcome, a generous spread, and attention to the little details that make a gathering feel cared for.</p><p>From intimate family meals to larger community events, we help create a setting that feels comfortable, polished, and easy to enjoy.</p></div>
   </div></section>
-  <section class="section section-dark"><div class="container"><div class="section-heading"><div>${eyebrow("A taste of our work")}<h2>Moments made for gathering.</h2><p>From the buffet to the final place setting, see how we bring colour, comfort, and care to the table.</p></div>${button("/work/", "View our work", "button-secondary")}</div>${workPreview()}</div></section>
-  <section class="section section-ivory"><div class="container"><div class="section-heading"><div>${eyebrow("From our kitchen")}<h2>A taste of recent gatherings.</h2><p>Take a look at some of the dishes served at past events—made for sharing, celebrating, and going back for one more helping.</p></div>${button("/menu/", "Browse food", "button-outline")}</div><div class="food-strip">${food.map(foodCard).join("")}</div></div></section>
-  <section class="section section-white"><div class="container"><div class="section-heading"><div>${eyebrow("Guest voices")}<h2>Share how your day felt.</h2><p>We welcome honest words from the people who have shared a table with us.</p></div></div><div class="empty-state"><div class="content-kicker">Your voice matters</div><h3>Tell us about your gathering.</h3><p>Had Golden Plate cater for your event? We would be glad to hear what made the day special.</p><a class="text-link" href="/reviews/" data-nav>Leave a review</a></div></div></section>
-  <section class="section section-dark"><div class="container split-copy"><div>${eyebrow("Start a conversation")}<h2>Tell us what you are gathering for.</h2></div><div><p>Share the essentials of your enquiry and the information will be stored securely for follow-up. Submitting an enquiry does not confirm a booking.</p>${button("/contact/", "Get a quote", "button-secondary")}</div></div></section>`;
+  <section class="section section-dark"><div class="container"><div class="section-heading"><div>${eyebrow("A taste of our work")}<h2>Moments made for gathering.</h2><p>From the buffet to the final table setting, each detail is chosen to help the occasion feel effortless and memorable.</p></div></div>${workPreview()}</div></section>
+  <section class="section section-ivory"><div class="container"><div class="section-heading"><div>${eyebrow("From our kitchen")}<h2>A taste of recent gatherings.</h2><p>Take a look at a few favourite dishes and moments from the kitchen.</p></div></div><div class="food-grid">${food.map(foodCard).join("")}</div></div></section>
+  <section class="section section-white"><div class="container"><div class="section-heading"><div>${eyebrow("Guest voices")}<h2>Share how your day felt.</h2><p>We welcome honest words from the people whose gatherings have been shaped by Golden Plate.</p></div></div><div class="cta-row"><a class="button" href="/reviews/" data-nav>Read guest feedback <span aria-hidden="true">↗</span></a><a class="button button-secondary" href="/contact/" data-nav>Start your enquiry</a></div></div></section>
+  <section class="section section-dark"><div class="container split-copy"><div>${eyebrow("Start a conversation")}<h2>Tell us what you are gathering for.</h2></div><div><p>Share the essentials of your event, and we can begin exploring the right menu, setup, and service for the day.</p>${button("/contact/", "Get a quote", "button-inline")}</div></div></section>`;
 }
 
 function renderAbout() {
   const about = siteConfig.approvedAbout || {};
   return `${pageHero("About Golden Plate", "Golden Plate, Karibu Dala.", "A warm welcome, a generous table, and thoughtful catering for the moments people remember.")}
-  <section class="section section-white"><div class="container split-copy"><div><div class="content-kicker">Our welcome</div><h2>${about.story ? escapeHtml(about.story) : "A table where everyone feels at home."}</h2></div><div>${about.story ? `<p>${escapeHtml(about.story)}</p>` : `<p>Golden Plate brings people together through food, hospitality, and the small details that make a gathering feel special.</p>`}${welcomeNotice("Golden Plate, Karibu Dala", "Come in, settle at the table, and let us help make the occasion memorable.")}</div></div></section>
-  <section class="section section-ivory"><div class="container"><div class="section-heading"><div>${eyebrow("What guides the work")}<h2>Care in every serving.</h2></div></div><div class="feature-grid"><article class="feature-card"><span class="feature-index">01</span><h3>Warm hospitality</h3><p>${about.approach ? escapeHtml(about.approach) : "From the first conversation to the last plate served, every guest should feel welcome."}</p></article><article class="feature-card"><span class="feature-index">02</span><h3>Gatherings that matter</h3><p>Big celebrations, family milestones, and everyday occasions all deserve a table prepared with care.</p></article><article class="feature-card"><span class="feature-index">03</span><h3>Made for sharing</h3><p>${about.team ? escapeHtml(about.team) : "Good food brings people closer. That spirit is at the heart of every Golden Plate gathering."}</p></article></div></div></section>
-  <section class="section section-white"><div class="container intro-grid"><div class="display-image"><img src="/assets/dining_gazebo_2.png" alt="White covered chairs with orange sashes arranged inside a covered dining space" width="1600" height="720" loading="lazy"></div><div class="intro-copy"><div class="content-kicker">See the work</div><h2>See how the table comes together.</h2><p>Browse past events, dining setups, buffet displays, and food prepared for sharing.</p>${button("/work/", "Open our work", "button-outline")}</div></div></section>`;
+  <section class="section section-white"><div class="container split-copy"><div><div class="content-kicker">Our welcome</div><h2>${about.story ? escapeHtml(about.story) : "A table where everyone feels at ease."}</h2><p>We believe a good gathering is shaped by warmth, care, and a sense that every guest has been considered. Our approach is rooted in thoughtful preparation, clear communication, and food that feels generous without fuss.</p></div><div class="detail-panel"><h3>What guides our work</h3><p>${about.approach ? escapeHtml(about.approach) : "We pay attention to the details that make an event feel finished: timing, comfort, presentation, and a relaxed host experience from start to finish."}</p></div></div></section>
+  <section class="section section-ivory"><div class="container"><div class="section-heading"><div>${eyebrow("The team behind the table")}<h2>Care in every serving.</h2></div></div><div class="feature-grid"><article class="feature-card"><span class="feature-index">01</span><h3>Prepared with care</h3><p>Each event begins with a careful review of the brief, guest needs, timing, and atmosphere you want to create.</p></article><article class="feature-card"><span class="feature-index">02</span><h3>Thoughtful service</h3><p>We focus on smooth delivery, practical pacing, and a presentation that feels polished without being overdone.</p></article><article class="feature-card"><span class="feature-index">03</span><h3>Warm hospitality</h3><p>The best gatherings feel easy and welcoming. We aim to create that atmosphere from the first welcome to the last plate.</p></article></div></div></section>
+  <section class="section section-white"><div class="container intro-grid"><div class="display-image"><img src="/assets/dining_gazebo_2.png" alt="White covered chairs with orange sashes arranged inside a covered dining space" width="1600" height="720" loading="lazy"></div><div class="intro-copy"><div class="content-kicker">Our story</div><h2>Thoughtful food, welcoming tables.</h2><p>${about.team ? escapeHtml(about.team) : "Golden Plate is built around the idea that gatherings deserve care, comfort, and the kind of food people remember long after the meal."}</p></div></div></section>`;
 }
 
 function renderServices() {
   const services = siteConfig.approvedServices || [];
   const serviceContent = services.length
-    ? services.map((service, index) => `<article class="feature-card"><span class="feature-index">${String(index + 1).padStart(2, "0")}</span><h3>${escapeHtml(service.title || "Service")}</h3><p>${escapeHtml(service.description || "")}</p></article>`).join("")
-    : `<article class="feature-card"><span class="feature-index">01</span><h3>Food for the occasion</h3><p>Tell us the kind of meal and style of service you have in mind, from a relaxed buffet to a beautifully dressed table.</p></article><article class="feature-card"><span class="feature-index">02</span><h3>Celebrations &amp; milestones</h3><p>Weddings, ruracios, graduations, family celebrations, and work gatherings all begin with a conversation.</p></article><article class="feature-card"><span class="feature-index">03</span><h3>Let’s plan together</h3><p>Share your date, venue, guest count, and the feeling you would like your gathering to have.</p></article>`;
+    ? services.map((service, index) => `<article class="feature-card"><span class="feature-index">${String(index + 1).padStart(2, "0")}</span><h3>${escapeHtml(service.title || "Service")}</h3><p>${escapeHtml(service.description || "Tailored service for your gathering.")}</p></article>`).join("")
+    : `<article class="feature-card"><span class="feature-index">01</span><h3>Food for the occasion</h3><p>Tell us the kind of meal and style of service you have in mind, from a relaxed buffet to a more formal table setting.</p></article><article class="feature-card"><span class="feature-index">02</span><h3>Complete event support</h3><p>We can coordinate the menu, guest flow, setup, and practical details required for a smoother overall experience.</p></article><article class="feature-card"><span class="feature-index">03</span><h3>Flexible planning</h3><p>Whether the gathering is small and intimate or larger and more complex, we tailor the experience to suit the event.</p></article>`;
   return `${pageHero("Services", "Every gathering has its own flavour.", "Golden Plate, Karibu Dala. Tell us what you are celebrating and we will begin with the details that matter to you.")}
-  <section class="section section-white"><div class="container">${welcomeNotice("Let’s make a plan", "Whether it is a family celebration or a work gathering, start by telling us about the day.")}<div class="feature-grid spacing-top-lg">${serviceContent}</div></div></section>
-  <section class="section section-dark"><div class="container split-copy"><div>${eyebrow("Your occasion, your brief")}<h2>Let the details lead.</h2></div><div><p>Share the event type, date, location, guest estimate, and any food or setup wishes. We will use your enquiry to start the conversation.</p>${button("/contact/", "Begin an enquiry", "button-secondary")}</div></div></section>`;
+  <section class="section section-white"><div class="container">${welcomeNotice("Let’s make a plan", "Whether it is a family celebration or a work gathering, start by telling us about the day, the guests, and the feeling you want the table to carry.")}</div></section>
+  <section class="section section-dark"><div class="container split-copy"><div>${eyebrow("Your occasion, your brief")}<h2>Let the details lead.</h2></div><div><p>Share the event type, date, location, guest estimate, and any practical preferences. From there, we can shape a menu and setup that fit the occasion.</p>${button("/contact/", "Share your brief", "button-inline")}</div></div></section>
+  <section class="section section-ivory"><div class="container"><div class="feature-grid">${serviceContent}</div></div></section>`;
 }
 
 function renderWork() {
   const filters = ["all", "video", "dining", "buffet"];
   return `${pageHero("Our work", "A closer look at the details.", "Browse past gatherings, from the food and buffet to the dining setup and finishing touches.")}
-  <section class="section section-white"><div class="container"><div class="gallery-controls" role="group" aria-label="Filter work"><button class="filter-button" type="button" data-filter="all" aria-pressed="true">All work</button>${filters.slice(1).map((filter) => `<button class="filter-button" type="button" data-filter="${filter}" aria-pressed="false">${filter}</button>`).join("")}</div><div class="gallery-grid" data-gallery>${assets.work.map((item) => `<div class="gallery-item" data-category="${escapeHtml(item.category)}">${mediaCard(item)}</div>`).join("")}</div><p class="muted-small muted-note">Videos are loaded only when opened. Playback controls are available in the viewer.</p></div></section>`;
+  <section class="section section-white"><div class="container"><div class="gallery-controls" role="group" aria-label="Filter work"><button class="filter-button" type="button" data-filter="all" aria-pressed="true">All</button>${filters.filter((filter) => filter !== "all").map((filter) => `<button class="filter-button" type="button" data-filter="${filter}" aria-pressed="false">${escapeHtml(filter.charAt(0).toUpperCase() + filter.slice(1))}</button>`).join("")}</div><div class="gallery-grid" data-gallery>${assets.work.map((item) => `<figure class="gallery-item" data-category="${escapeHtml(item.category || "all")}"><button class="gallery-trigger" type="button" data-media-trigger data-media-id="${escapeHtml(item.id)}" aria-label="Open ${escapeHtml(item.title)}"><img src="${escapeHtml(item.file)}" alt="${escapeHtml(item.alt || item.title)}" loading="lazy" width="${item.width || 900}" height="${item.height || 600}"></button><figcaption>${escapeHtml(item.title)}</figcaption></figure>`).join("")}</div></div></section>`;
 }
 
 function renderMenu() {
   return `${pageHero("Food", "A taste of gatherings gone by.", "Browse food from previous events and imagine the spread for your own celebration.")}
-  <section class="section section-white"><div class="container">${welcomeNotice("Golden Plate, Karibu Dala", "These are a few favourites from past gatherings. Tell us what you would love to serve at yours.")}<div class="food-grid spacing-top-lg">${assets.food.map(foodCard).join("")}</div></div></section>
-  <section class="section section-ivory"><div class="container split-copy"><div>${eyebrow("For your gathering")}<h2>What would you like on the table?</h2></div><div><p>Every event has its own taste. Share your menu ideas, guest numbers, dietary needs, and the kind of welcome you want to create.</p>${button("/contact/", "Plan your menu", "button-outline")}</div></div></section>`;
+  <section class="section section-white"><div class="container">${welcomeNotice("Golden Plate, Karibu Dala", "These are a few favourites from past gatherings. Tell us what you would love to serve at yours, and we can shape a menu around the occasion.")}</div></section>
+  <section class="section section-ivory"><div class="container split-copy"><div>${eyebrow("For your gathering")}<h2>What would you like on the table?</h2></div><div><p>Every event has its own tastes, guest mix, and rhythm. We work with your brief to suggest a menu that feels right for the gathering.</p>${button("/contact/", "Discuss your menu", "button-inline")}</div></div></section>
+  <section class="section section-white"><div class="container"><div class="food-grid">${assets.food.map(foodCard).join("")}</div></div></section>`;
 }
 
 function renderReviewForm() {
-  return `<div class="form-panel"><h2>Share your experience</h2><form data-review-form novalidate><div class="field"><label for="review-name">Your name</label><input id="review-name" name="name" autocomplete="name" maxlength="120" required aria-describedby="error-review-name"><span class="field-error" id="error-review-name"></span></div><fieldset class="field"><legend class="rating-legend">Rating</legend><div class="rating-options"><input id="rating-5" name="rating" type="radio" value="5" required><label for="rating-5" title="5 stars">★<span class="sr-only">5 stars</span></label><input id="rating-4" name="rating" type="radio" value="4"><label for="rating-4" title="4 stars">★<span class="sr-only">4 stars</span></label><input id="rating-3" name="rating" type="radio" value="3"><label for="rating-3" title="3 stars">★<span class="sr-only">3 stars</span></label><input id="rating-2" name="rating" type="radio" value="2"><label for="rating-2" title="2 stars">★<span class="sr-only">2 stars</span></label><input id="rating-1" name="rating" type="radio" value="1"><label for="rating-1" title="1 star">★<span class="sr-only">1 star</span></label></div><span class="field-error" id="error-review-rating"></span></fieldset><div class="field"><label for="review-text">Your review</label><textarea id="review-text" name="text" maxlength="2000" required aria-describedby="error-review-text" placeholder="What would you like future customers to know?"></textarea><span class="field-error" id="error-review-text"></span></div><div class="honeypot" aria-hidden="true"><label for="review-website">Website</label><input id="review-website" name="website" tabindex="-1" autocomplete="off"></div><p class="form-footnote">Your review is stored as pending and will be checked before it appears publicly. Please do not include private contact details.</p><button class="button" type="submit">Submit for review <span aria-hidden="true">↗</span></button><p class="form-status" data-form-status role="status" aria-live="polite"></p></form></div>`;
+  return `<div class="form-panel"><h2>Share your experience</h2><form data-review-form novalidate><div class="field"><label for="review-name">Your name</label><input id="review-name" name="name" type="text" autocomplete="name"></div><div class="field"><label for="review-rating">Your rating</label><select id="review-rating" name="rating"><option value="">Select a rating</option><option value="5">5 / 5</option><option value="4">4 / 5</option><option value="3">3 / 5</option><option value="2">2 / 5</option><option value="1">1 / 5</option></select></div><div class="field"><label for="review-text">Your feedback</label><textarea id="review-text" name="text" rows="5"></textarea></div><div class="field-error" id="error-review-name"></div><div class="field-error" id="error-review-rating"></div><div class="field-error" id="error-review-text"></div><button class="button" type="submit">Send review</button><p class="form-status" data-form-status aria-live="polite"></p></form></div>`;
 }
 
 function renderReviews() {
   return `${pageHero("Reviews", "The memories stay with you.", "If Golden Plate shared your special day, we would love to hear what made it memorable.")}
-  <section class="section section-white"><div class="container"><div class="review-summary"><div>${eyebrow("Words from our guests")}<h2>Every gathering has a story.</h2></div><div><p>Guest feedback is shared here after a quick check, so every voice comes from a real experience.</p></div></div><div class="review-list" data-review-list><div class="empty-state"><div class="content-kicker">Guest stories</div><h3>Getting the table ready.</h3><p>We are gathering feedback from our guests. Check back soon for their stories.</p></div></div></div></section>
-  <section class="section section-ivory"><div class="container form-layout"><div class="form-intro">${eyebrow("Your experience")}<h2>Tell the next guest what mattered.</h2><p>Use your own words. A review is not published immediately and submitting one does not create an account.</p></div>${renderReviewForm()}</div></section>`;
+  <section class="section section-white"><div class="container"><div class="review-summary"><div>${eyebrow("Words from our guests")}<h2>Every gathering has a story.</h2></div><div><p>Guest feedback helps us keep improving and helps future hosts understand the experience they can expect.</p></div></div><div class="review-list" data-review-list></div></div></section>
+  <section class="section section-ivory"><div class="container form-layout"><div class="form-intro">${eyebrow("Your experience")}<h2>Tell the next guest what mattered.</h2><p>Use your own words. Whether it was a beautiful menu, the warmth of the team, or the flow of the day, your feedback helps others feel prepared.</p></div>${renderReviewForm()}</div></section>`;
 }
 
 function renderContactForm() {
-  return `<div class="form-panel"><h2>Tell us about it</h2><form data-enquiry-form novalidate><div class="form-row"><div class="field"><label for="enquiry-name">Name</label><input id="enquiry-name" name="name" autocomplete="name" maxlength="120" required aria-describedby="error-enquiry-name"><span class="field-error" id="error-enquiry-name"></span></div><div class="field"><label for="enquiry-email">Email <span class="optional">or telephone below</span></label><input id="enquiry-email" name="email" type="email" autocomplete="email" maxlength="254" aria-describedby="error-enquiry-email"><span class="field-error" id="error-enquiry-email"></span></div></div><div class="form-row"><div class="field"><label for="enquiry-phone">Telephone <span class="optional">or email above</span></label><input id="enquiry-phone" name="phone" autocomplete="tel" maxlength="40" aria-describedby="error-enquiry-contact"><span class="field-error" id="error-enquiry-contact"></span></div><div class="field"><label for="enquiry-event">Event type <span class="optional">optional</span></label><input id="enquiry-event" name="eventType" maxlength="120" placeholder="Tell us what you are planning" aria-describedby="error-enquiry-eventType"><span class="field-error" id="error-enquiry-eventType"></span></div></div><div class="form-row"><div class="field"><label for="enquiry-date">Event date <span class="optional">optional</span></label><input id="enquiry-date" name="eventDate" type="date" aria-describedby="error-enquiry-eventDate"><span class="field-error" id="error-enquiry-eventDate"></span></div><div class="field"><label for="enquiry-guests">Estimated guests <span class="optional">optional</span></label><input id="enquiry-guests" name="guests" inputmode="numeric" maxlength="20" placeholder="An estimate is fine"><span class="field-error" id="error-enquiry-guests"></span></div></div><div class="field"><label for="enquiry-location">Event location <span class="optional">optional</span></label><input id="enquiry-location" name="location" maxlength="180" placeholder="Town, venue, or area"><span class="field-error" id="error-enquiry-location"></span></div><div class="field"><label for="enquiry-message">What would you like to discuss?</label><textarea id="enquiry-message" name="message" maxlength="4000" required aria-describedby="error-enquiry-message" placeholder="Share the occasion, requirements, or questions you have."></textarea><span class="field-error" id="error-enquiry-message"></span></div><div class="field"><label for="enquiry-requirements">Additional requirements <span class="optional">optional</span></label><textarea id="enquiry-requirements" name="requirements" maxlength="2000" placeholder="Menu preferences, setup notes, or dietary requirements"></textarea><span class="field-error" id="error-enquiry-requirements"></span></div><div class="honeypot" aria-hidden="true"><label for="enquiry-website">Website</label><input id="enquiry-website" name="website" tabindex="-1" autocomplete="off"></div><p class="form-footnote">We collect the details needed to respond to this enquiry. Sending this form does not confirm availability or a booking.</p><button class="button" type="submit">Send enquiry <span aria-hidden="true">↗</span></button><p class="form-status" data-form-status role="status" aria-live="polite"></p></form></div>`;
+  return `<div class="form-panel"><h2>Tell us about it</h2><form data-enquiry-form novalidate><div class="form-row"><div class="field"><label for="enquiry-name">Name</label><input id="enquiry-name" name="name" type="text" autocomplete="name"></div><div class="field"><label for="enquiry-email">Email</label><input id="enquiry-email" name="email" type="email" autocomplete="email"></div></div><div class="form-row"><div class="field"><label for="enquiry-phone">Phone</label><input id="enquiry-phone" name="phone" type="tel" autocomplete="tel"></div><div class="field"><label for="enquiry-event-type">Event type</label><input id="enquiry-event-type" name="eventType" type="text"></div></div><div class="form-row"><div class="field"><label for="enquiry-event-date">Event date</label><input id="enquiry-event-date" name="eventDate" type="date"></div><div class="field"><label for="enquiry-guests">Estimated guests</label><input id="enquiry-guests" name="guests" type="number" min="1" inputmode="numeric"></div></div><div class="form-row"><div class="field"><label for="enquiry-location">Location</label><input id="enquiry-location" name="location" type="text"></div></div><div class="field"><label for="enquiry-requirements">Requirements</label><textarea id="enquiry-requirements" name="requirements" rows="4" placeholder="Menu ideas, dietary requests, setup details, staffing needs, etc."></textarea></div><div class="field"><label for="enquiry-message">Tell us more</label><textarea id="enquiry-message" name="message" rows="5"></textarea></div><div class="field-error" id="error-enquiry-name"></div><div class="field-error" id="error-enquiry-contact"></div><div class="field-error" id="error-enquiry-email"></div><div class="field-error" id="error-enquiry-phone"></div><div class="field-error" id="error-enquiry-eventDate"></div><div class="field-error" id="error-enquiry-guests"></div><div class="field-error" id="error-enquiry-message"></div><button class="button" type="submit">Send enquiry</button><p class="form-status" data-form-status aria-live="polite"></p></form></div>`;
 }
 
 function renderContact() {
   const contact = publicConfig.contact || {};
   const hasContact = contact.email || contact.phone || contact.whatsapp;
   return `${pageHero("Get a quote", "Let’s set the table together.", "Golden Plate, Karibu Dala. Tell us about the occasion, and let’s begin planning a gathering your guests will enjoy.")}
-  <section class="section section-white"><div class="container form-layout"><div class="form-intro">${eyebrow("A warm first step")}<h2>Bring your occasion into focus.</h2><p>Share your date, guest estimate, venue, and the details that will make the day feel like yours.</p>${hasContact ? `<dl class="contact-details">${contact.email ? `<dt>Email</dt><dd><a href="mailto:${escapeHtml(contact.email)}">${escapeHtml(contact.email)}</a></dd>` : ""}${contact.phone ? `<dt>Telephone</dt><dd><a href="tel:${escapeHtml(contact.phone)}">${escapeHtml(contact.phone)}</a></dd>` : ""}${contact.whatsapp ? `<dt>WhatsApp</dt><dd>${escapeHtml(contact.whatsapp)}</dd>` : ""}</dl>` : `<div class="contact-details"><div class="content-kicker">Start here</div><p class="muted-note">Use the form to share your plans and begin the conversation with Golden Plate.</p></div>`}</div>${renderContactForm()}</div></section>`;
+  <section class="section section-white"><div class="container form-layout"><div class="form-intro">${eyebrow("A warm first step")}<h2>Bring your occasion into focus.</h2><p>Share your date, guests, location, and any ideas you already have. We can then suggest a setup and menu plan that suits the event.</p>${hasContact ? `<div class="contact-list"><p><strong>Email:</strong> <a href="mailto:${escapeHtml(contact.email || "")}">${escapeHtml(contact.email || "")}</a></p><p><strong>Phone:</strong> <a href="tel:${escapeHtml(contact.phone || "")}">${escapeHtml(contact.phone || "")}</a></p>${contact.whatsapp ? `<p><strong>WhatsApp:</strong> <a href="https://wa.me/${escapeHtml(contact.whatsapp.replace(/\D/g, ""))}" target="_blank" rel="noreferrer">Message on WhatsApp</a></p>` : ""}</div>` : ""}</div>${renderContactForm()}</div></section>`;
 }
 
 function renderPrivacy() {
   return `${pageHero("Privacy & data", "A clear account of what the site stores.", "This site collects only the information needed for genuine enquiries and review submissions.")}
-  <section class="section section-white"><div class="container privacy-copy"><h2>Information you submit</h2><p>When you send an enquiry, the site stores the name, contact details, event details, and message you provide so the enquiry can be followed up. When you submit a review, it stores your name, rating, review text, submission time, and moderation status.</p><h2>How the information is used</h2><p>Enquiry information is used to respond to the enquiry. Review information is used to moderate and, only after approval, display the review publicly. Email addresses, telephone numbers, and internal moderation details are not displayed in public review listings.</p><h2>Storage and access</h2><p>Submissions are stored on the site's server with access restricted to authorised administrators. Retention periods, backup procedures, and administrator ownership are maintained under the site's operational policies.</p><h2>What is not integrated</h2><ul><li>No analytics, advertising pixels, payment processing, account registration, or third-party review provider is enabled.</li><li>No file upload is enabled.</li><li>Submitting an enquiry does not confirm availability, a booking, or a payment.</li></ul><h2>Questions and requests</h2><p>For questions about your information, or to request access to or removal of your details, use the contact details listed on this site.</p></div></section>`;
+  <section class="section section-white"><div class="container privacy-copy"><h2>Information you submit</h2><p>When you send an enquiry, the site stores the name, contact details, event details, and any notes you include so the catering team can respond appropriately.</p><p>When you submit a review, the website stores your name, rating, and review text for moderation before it is published.</p><h2>How it is used</h2><p>Submitted information is used to handle enquiries, assess service feedback, and improve the client experience. It is not sold or shared with unrelated third parties.</p><h2>Access and control</h2><p>Anyone with the site administrator credentials can review enquiry and review submissions using the admin monitoring area.</p></div></section>`;
+}
+
+function statusBadge(status) {
+  const label = {
+    new: "New",
+    contacted: "Contacted",
+    quoted: "Quoted",
+    booked: "Booked",
+    closed: "Closed"
+  }[status] || "New";
+  return `<span class="status-badge status-${escapeHtml(status || "new")}">${escapeHtml(label)}</span>`;
+}
+
+function renderAdminLogin() {
+  return `<section class="section section-white"><div class="container admin-login-shell"><div class="admin-panel"><div class="content-kicker">Owner dashboard</div><h1>Monitor catering enquiries</h1><p>Sign in with the configured admin credentials to review new requests and update their status.</p><form data-admin-login><div class="field"><label for="admin-username">Username</label><input id="admin-username" name="username" type="text" autocomplete="username"></div><div class="field"><label for="admin-password">Password</label><input id="admin-password" name="password" type="password" autocomplete="current-password"></div><button class="button" type="submit">Open dashboard</button></form></div></div></section>`;
+}
+
+function formatEnquiryDate(value) {
+  if (!value) return "—";
+  try {
+    return new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+  } catch {
+    return value;
+  }
+}
+
+function renderAdminEnquiries(enquiries) {
+  if (!enquiries.length) {
+    return `<div class="empty-state"><h3>No pending enquiries</h3><p>New enquiries will appear here as soon as guests submit them.</p></div>`;
+  }
+
+  return enquiries.map((enquiry) => `
+    <article class="admin-card">
+      <div class="admin-card-header">
+        <div>
+          <h3>${escapeHtml(enquiry.name || "Unknown guest")}</h3>
+          <p>${escapeHtml(enquiry.email || "No email")} · ${escapeHtml(enquiry.phone || "No phone")}</p>
+        </div>
+        ${statusBadge(enquiry.status || "new")}
+      </div>
+      <dl class="admin-meta">
+        <div><dt>Event</dt><dd>${escapeHtml(enquiry.eventType || "Not specified")}</dd></div>
+        <div><dt>Date</dt><dd>${escapeHtml(enquiry.eventDate || "Not specified")}</dd></div>
+        <div><dt>Guests</dt><dd>${escapeHtml(enquiry.guests || "Not specified")}</dd></div>
+        <div><dt>Location</dt><dd>${escapeHtml(enquiry.location || "Not specified")}</dd></div>
+      </dl>
+      <p class="admin-message"><strong>Requirements:</strong> ${escapeHtml(enquiry.requirements || "No specific requirements provided.")}</p>
+      <p class="admin-message"><strong>Message:</strong> ${escapeHtml(enquiry.message || "No message provided.")}</p>
+      <div class="admin-actions">
+        <label>
+          <span>Update status</span>
+          <select data-enquiry-status data-enquiry-id="${escapeHtml(enquiry.id)}">
+            <option value="new" ${enquiry.status === "new" ? "selected" : ""}>New</option>
+            <option value="contacted" ${enquiry.status === "contacted" ? "selected" : ""}>Contacted</option>
+            <option value="quoted" ${enquiry.status === "quoted" ? "selected" : ""}>Quoted</option>
+            <option value="booked" ${enquiry.status === "booked" ? "selected" : ""}>Booked</option>
+            <option value="closed" ${enquiry.status === "closed" ? "selected" : ""}>Closed</option>
+          </select>
+        </label>
+        <span class="admin-submitted">Submitted ${escapeHtml(formatEnquiryDate(enquiry.submittedAt))}</span>
+      </div>
+    </article>
+  `).join("");
+}
+
+async function fetchAdminEnquiries() {
+  if (!adminSession) return;
+  const response = await fetch("/api/admin/enquiries", {
+    headers: { Authorization: `Basic ${btoa(`${adminSession.username}:${adminSession.password}`)}` }
+  });
+  if (response.status === 401) {
+    adminSession = null;
+    sessionStorage.removeItem("goldenPlateAdmin");
+    showToast("Admin session expired. Please sign in again.");
+    renderRoute("/admin/");
+    return;
+  }
+  if (!response.ok) {
+    throw new Error("Could not load enquiries.");
+  }
+  const payload = await response.json();
+  const list = document.querySelector("[data-admin-list]");
+  if (list) list.innerHTML = renderAdminEnquiries(payload.enquiries || []);
+}
+
+async function updateEnquiryStatus(id, status) {
+  if (!adminSession) return;
+  const response = await fetch(`/api/admin/enquiries/${id}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Basic ${btoa(`${adminSession.username}:${adminSession.password}`)}`
+    },
+    body: JSON.stringify({ status })
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || "Could not update the enquiry status.");
+  }
+  await fetchAdminEnquiries();
+  showToast(`Enquiry marked as ${status}.`);
+}
+
+function renderAdmin() {
+  if (!adminSession) return renderAdminLogin();
+  return `<section class="section section-white"><div class="container admin-shell"><div class="admin-header"><div><div class="content-kicker">Owner dashboard</div><h1>Enquiry overview</h1></div><button class="button button-secondary" type="button" data-admin-logout>Log out</button></div><div class="admin-dashboard"><div class="admin-panel"><div class="panel-heading"><h2>All catering requests</h2></div><div data-admin-list>Loading enquiries…</div></div><div class="admin-panel"><h2>Status guide</h2><ul class="status-list"><li><span class="status-badge status-new">New</span> New request waiting for response.</li><li><span class="status-badge status-contacted">Contacted</span> Owner has reached out to the guest.</li><li><span class="status-badge status-quoted">Quoted</span> A quote or menu plan is prepared.</li><li><span class="status-badge status-booked">Booked</span> The event has been confirmed.</li><li><span class="status-badge status-closed">Closed</span> The request is resolved or archived.</li></ul></div></div></div></section>`;
+}
+
+function setAdminSession(username, password) {
+  adminSession = { username, password };
+  sessionStorage.setItem("goldenPlateAdmin", JSON.stringify({ username, password }));
+}
+
+function restoreAdminSession() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem("goldenPlateAdmin") || "null");
+    if (saved && saved.username && saved.password) {
+      adminSession = { username: saved.username, password: saved.password };
+    }
+  } catch {
+    // Ignore storage issues and fall back to the sign-in screen.
+  }
 }
 
 function setDocumentMeta(path) {
-  const titles = { "/": "Golden Plate Catering", "/about/": "About · Golden Plate Catering", "/services/": "Services · Golden Plate Catering", "/work/": "Our Work · Golden Plate Catering", "/menu/": "Food · Golden Plate Catering", "/reviews/": "Reviews · Golden Plate Catering", "/contact/": "Get a Quote · Golden Plate Catering", "/privacy/": "Privacy · Golden Plate Catering" };
+  const titles = { "/": "Golden Plate Catering", "/about/": "About · Golden Plate Catering", "/services/": "Services · Golden Plate Catering", "/work/": "Our Work · Golden Plate Catering", "/menu/": "Menu · Golden Plate Catering", "/reviews/": "Reviews · Golden Plate Catering", "/contact/": "Get a quote · Golden Plate Catering", "/privacy/": "Privacy · Golden Plate Catering", "/admin/": "Admin · Golden Plate Catering" };
   document.title = titles[path] || titles["/"];
   const description = document.querySelector('meta[name="description"]');
-  description?.setAttribute("content", path === "/" ? "Golden Plate Catering — thoughtful food, welcoming tables, and care for every gathering." : `${document.title}. Golden Plate, Karibu Dala — explore food, past gatherings, and catering for your occasion.`);
+  description?.setAttribute("content", path === "/" ? "Golden Plate Catering — thoughtful food, welcoming tables, and care for every gathering." : `${document.title}. Golden Plate, Karibu Dala.`);
   const canonical = document.querySelector('link[rel="canonical"]');
   if (publicConfig.siteUrl) {
     const link = canonical || document.head.appendChild(Object.assign(document.createElement("link"), { rel: "canonical" }));
@@ -187,7 +313,7 @@ function updateSocialLinks() {
   const socials = publicConfig.socials || {};
   const labels = { facebook: "Facebook", instagram: "Instagram", tiktok: "TikTok" };
   document.querySelectorAll("[data-social-links]").forEach((container) => {
-    const links = Object.entries(labels).map(([key, label]) => [label, safeExternalUrl(socials[key])]).filter(([, url]) => url).map(([label, url]) => `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${label} <span aria-hidden="true">↗</span></a>`).join("");
+    const links = Object.entries(labels).map(([key, label]) => [label, safeExternalUrl(socials[key])]).filter(([, url]) => url).map(([label, url]) => `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer" aria-label="${escapeHtml(label)}">${escapeHtml(label)}</a>`).join("");
     container.innerHTML = links || `<span class="muted-small">Find Golden Plate online soon.</span>`;
   });
 }
@@ -211,7 +337,6 @@ function setupHeroVideo() {
     video.classList.add("is-reduced");
     return;
   }
-  // A slow, unhurried loop keeps the hero feeling elegant without appearing frozen.
   video.defaultPlaybackRate = 0.54;
   video.playbackRate = 0.54;
   video.play().catch(() => {});
@@ -339,6 +464,37 @@ function setupForms() {
     phoneInput.title = "Use the format +254712345678";
   }
   enquiryForm?.addEventListener("submit", (event) => { event.preventDefault(); handleFormSubmit(event.currentTarget, "enquiry"); });
+  document.querySelector("[data-admin-login]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const username = form.elements.username.value.trim();
+    const password = form.elements.password.value;
+    if (!username || !password) {
+      showToast("Please enter both admin username and password.");
+      return;
+    }
+    setAdminSession(username, password);
+    renderRoute("/admin/");
+    showToast("Admin dashboard ready.");
+  });
+  document.querySelector("[data-admin-logout]")?.addEventListener("click", () => {
+    adminSession = null;
+    sessionStorage.removeItem("goldenPlateAdmin");
+    renderRoute("/admin/");
+  });
+  document.addEventListener("change", async (event) => {
+    const select = event.target.closest("[data-enquiry-status]");
+    if (!select) return;
+    const id = select.dataset.enquiryId;
+    const status = select.value;
+    try {
+      await updateEnquiryStatus(id, status);
+    } catch (error) {
+      showToast(error.message || "Status update failed.");
+      select.value = select.dataset.previousValue || "new";
+    }
+    select.dataset.previousValue = status;
+  });
 }
 
 async function loadReviews() {
@@ -348,7 +504,7 @@ async function loadReviews() {
     const response = await fetch("/api/reviews");
     if (!response.ok) throw new Error("Could not load reviews");
     const { reviews } = await response.json();
-    list.innerHTML = reviews.length ? reviews.map((review) => `<article class="review-card"><div class="review-stars" aria-label="${review.rating} out of 5 stars">${"★".repeat(review.rating)}${"☆".repeat(5 - review.rating)}</div><blockquote>“${escapeHtml(review.text)}”</blockquote><cite>${escapeHtml(review.name)}</cite></article>`).join("") : `<div class="empty-state empty-wide"><div class="content-kicker">Guest stories</div><h3>Be the first to share yours.</h3><p>If Golden Plate catered for your gathering, we would be glad to hear from you.</p></div>`;
+    list.innerHTML = reviews.length ? reviews.map((review) => `<article class="review-card"><div class="review-stars" aria-label="${review.rating} out of 5 stars">${"★".repeat(review.rating)}${"☆".repeat(5 - review.rating)}</div><p>“${escapeHtml(review.text)}”</p><div class="review-meta"><strong>${escapeHtml(review.name)}</strong><span>${escapeHtml(new Date(review.approvedAt || review.submittedAt).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }))}</span></div></article>`).join("") : `<div class="empty-state empty-wide"><div class="content-kicker">Reviews unavailable</div><h3>We could not load feedback.</h3><p>Please try again later.</p></div>`;
   } catch {
     list.innerHTML = `<div class="empty-state empty-wide"><div class="content-kicker">Reviews unavailable</div><h3>We could not load feedback.</h3><p>Please try again later.</p></div>`;
   }
@@ -400,6 +556,7 @@ function renderRoute(path) {
   setupGallery();
   setupForms();
   if (path === "/reviews/") loadReviews();
+  if (path === "/admin/" && adminSession) fetchAdminEnquiries().catch((error) => { showToast(error.message || "Could not load admin dashboard."); const list = document.querySelector("[data-admin-list]"); if (list) list.innerHTML = `<div class=\"empty-state\"><h3>Unable to load enquiries</h3><p>${escapeHtml(error.message || "Please try again soon.")}</p></div>`; });
   const menu = document.querySelector("#primary-nav");
   const menuButton = document.querySelector(".menu-toggle");
   menu?.classList.remove("is-open");
@@ -416,6 +573,7 @@ async function loadPublicConfig() {
   }
 }
 
+restoreAdminSession();
 document.querySelector("[data-year]").textContent = new Date().getFullYear();
 bindGlobalEvents();
 loadPublicConfig().finally(() => renderRoute(routePath()));

@@ -250,6 +250,80 @@ async function fetchAdminEnquiries() {
   if (list) list.innerHTML = renderAdminEnquiries(payload.enquiries || []);
 }
 
+function renderAdminReviews(reviews) {
+  if (!reviews.length) {
+    return `<div class="empty-state"><h3>No reviews awaiting moderation</h3><p>New guest reviews will appear here before they are published.</p></div>`;
+  }
+  return reviews.map((review) => `
+    <article class="admin-card review-admin-card">
+      <div class="admin-card-header">
+        <div><h3>${escapeHtml(review.name || "Guest")}</h3><p>${"★".repeat(Number(review.rating) || 0)}${"☆".repeat(5 - (Number(review.rating) || 0))} · ${Number(review.rating) || 0}/5</p></div>
+        ${statusBadge(review.status)}
+      </div>
+      <p class="admin-message">${escapeHtml(review.text || "")}</p>
+      <div class="admin-actions">
+        <span class="admin-submitted">Submitted ${escapeHtml(formatEnquiryDate(review.submittedAt))}</span>
+        <div class="review-moderation-actions">
+          ${review.status === "approved" ? `<button class="button button-secondary" type="button" data-review-moderate data-review-id="${escapeHtml(review.id)}" data-review-status="pending">Unpublish</button>` : ""}
+          ${review.status !== "approved" ? `<button class="button" type="button" data-review-moderate data-review-id="${escapeHtml(review.id)}" data-review-status="approved">Approve & publish</button>` : ""}
+          ${review.status !== "rejected" ? `<button class="button button-danger" type="button" data-review-moderate data-review-id="${escapeHtml(review.id)}" data-review-status="rejected">Reject</button>` : ""}
+          <button class="button button-secondary" type="button" data-review-delete data-review-id="${escapeHtml(review.id)}">Delete</button>
+        </div>
+      </div>
+    </article>
+  `).join("");
+}
+
+async function fetchAdminReviews() {
+  if (!adminSession) return;
+  const response = await fetch("/api/admin/reviews", {
+    headers: { Authorization: `Basic ${btoa(`${adminSession.username}:${adminSession.password}`)}` }
+  });
+  if (response.status === 401) {
+    adminSession = null;
+    sessionStorage.removeItem("goldenPlateAdmin");
+    showToast("Admin session expired. Please sign in again.");
+    renderRoute("/admin/");
+    return;
+  }
+  if (!response.ok) throw new Error("Could not load reviews.");
+  const { reviews } = await response.json();
+  const list = document.querySelector("[data-admin-reviews]");
+  if (list) list.innerHTML = renderAdminReviews(reviews || []);
+}
+
+async function moderateReview(id, status) {
+  if (!adminSession) return;
+  const response = await fetch(`/api/admin/reviews/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Basic ${btoa(`${adminSession.username}:${adminSession.password}`)}`
+    },
+    body: JSON.stringify({ status })
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || "Could not update review moderation.");
+  }
+  await fetchAdminReviews();
+  showToast(status === "approved" ? "Review approved and published." : status === "rejected" ? "Review rejected." : "Review unpublished.");
+}
+
+async function deleteReview(id) {
+  if (!adminSession) return;
+  const response = await fetch(`/api/admin/reviews/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Basic ${btoa(`${adminSession.username}:${adminSession.password}`)}` }
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || "Could not delete review.");
+  }
+  await fetchAdminReviews();
+  showToast("Review deleted.");
+}
+
 async function updateEnquiryStatus(id, status) {
   if (!adminSession) return;
   const response = await fetch(`/api/admin/enquiries/${id}`, {
@@ -270,7 +344,7 @@ async function updateEnquiryStatus(id, status) {
 
 function renderAdmin() {
   if (!adminSession) return renderAdminLogin();
-  return `<section class="section section-white"><div class="container admin-shell"><div class="admin-header"><div><div class="content-kicker">Owner dashboard</div><h1>Enquiry overview</h1></div><button class="button button-secondary" type="button" data-admin-logout>Log out</button></div><div class="admin-dashboard"><div class="admin-panel"><div class="panel-heading"><h2>All catering requests</h2></div><div data-admin-list>Loading enquiries…</div></div><div class="admin-panel"><h2>Status guide</h2><ul class="status-list"><li><span class="status-badge status-new">New</span> New request waiting for response.</li><li><span class="status-badge status-contacted">Contacted</span> Owner has reached out to the guest.</li><li><span class="status-badge status-quoted">Quoted</span> A quote or menu plan is prepared.</li><li><span class="status-badge status-booked">Booked</span> The event has been confirmed.</li><li><span class="status-badge status-closed">Closed</span> The request is resolved or archived.</li></ul></div></div></div></section>`;
+  return `<section class="section section-white"><div class="container admin-shell"><div class="admin-header"><div><div class="content-kicker">Owner dashboard</div><h1>Enquiry & review overview</h1></div><button class="button button-secondary" type="button" data-admin-logout>Log out</button></div><div class="admin-dashboard admin-dashboard-main"><div class="admin-panel"><div class="panel-heading"><h2>Reviews awaiting moderation</h2><p>Approve reviews to publish them on the public reviews page.</p></div><div data-admin-reviews>Loading reviews…</div></div><div class="admin-panel"><div class="panel-heading"><h2>All catering requests</h2></div><div data-admin-list>Loading enquiries…</div></div><div class="admin-panel"><h2>Enquiry status guide</h2><ul class="status-list"><li><span class="status-badge status-new">New</span> New request waiting for response.</li><li><span class="status-badge status-contacted">Contacted</span> Owner has reached out to the guest.</li><li><span class="status-badge status-quoted">Quoted</span> A quote or menu plan is prepared.</li><li><span class="status-badge status-booked">Booked</span> The event has been confirmed.</li><li><span class="status-badge status-closed">Closed</span> The request is resolved or archived.</li></ul></div></div></div></section>`;
 }
 
 function setAdminSession(username, password) {
@@ -495,6 +569,25 @@ function setupForms() {
     }
     select.dataset.previousValue = status;
   });
+  document.addEventListener("click", async (event) => {
+    const moderateButton = event.target.closest("[data-review-moderate]");
+    const deleteButton = event.target.closest("[data-review-delete]");
+    if (!moderateButton && !deleteButton) return;
+    const button = moderateButton || deleteButton;
+    button.disabled = true;
+    try {
+      if (deleteButton) {
+        if (!window.confirm("Permanently delete this review?")) return;
+        await deleteReview(deleteButton.dataset.reviewId);
+      } else {
+        await moderateReview(moderateButton.dataset.reviewId, moderateButton.dataset.reviewStatus);
+      }
+    } catch (error) {
+      showToast(error.message || "Review moderation failed.");
+    } finally {
+      button.disabled = false;
+    }
+  });
 }
 
 async function loadReviews() {
@@ -556,7 +649,10 @@ function renderRoute(path) {
   setupGallery();
   setupForms();
   if (path === "/reviews/") loadReviews();
-  if (path === "/admin/" && adminSession) fetchAdminEnquiries().catch((error) => { showToast(error.message || "Could not load admin dashboard."); const list = document.querySelector("[data-admin-list]"); if (list) list.innerHTML = `<div class=\"empty-state\"><h3>Unable to load enquiries</h3><p>${escapeHtml(error.message || "Please try again soon.")}</p></div>`; });
+  if (path === "/admin/" && adminSession) {
+    fetchAdminEnquiries().catch((error) => { showToast(error.message || "Could not load enquiries."); const list = document.querySelector("[data-admin-list]"); if (list) list.innerHTML = `<div class=\"empty-state\"><h3>Unable to load enquiries</h3><p>${escapeHtml(error.message || "Please try again soon.")}</p></div>`; });
+    fetchAdminReviews().catch((error) => { showToast(error.message || "Could not load reviews."); const list = document.querySelector("[data-admin-reviews]"); if (list) list.innerHTML = `<div class=\"empty-state\"><h3>Unable to load reviews</h3><p>${escapeHtml(error.message || "Please try again soon.")}</p></div>`; });
+  }
   const menu = document.querySelector("#primary-nav");
   const menuButton = document.querySelector(".menu-toggle");
   menu?.classList.remove("is-open");

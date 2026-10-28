@@ -765,6 +765,14 @@ h3 {
   margin-top: 1.5rem;
 }
 
+.admin-dashboard-main {
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.6fr);
+}
+
+.admin-dashboard-main > .admin-panel:first-child {
+  grid-column: 1 / -1;
+}
+
 .admin-header {
   display: flex;
   justify-content: space-between;
@@ -858,6 +866,37 @@ h3 {
   color: #10253d;
   font: inherit;
 }
+
+.review-admin-card .admin-message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.review-moderation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.review-moderation-actions .button {
+  padding: 0.65rem 0.85rem;
+  font-size: 0.82rem;
+}
+
+.button-danger {
+  border: 1px solid rgba(160, 45, 35, 0.25);
+  background: rgba(160, 45, 35, 0.08);
+  color: #8e2d24;
+}
+
+.button-danger:hover {
+  background: rgba(160, 45, 35, 0.15);
+}
+
+.status-pending { background: rgba(194, 125, 37, 0.15); color: #84530b; }
+.status-approved { background: rgba(31, 127, 88, 0.12); color: #1b6245; }
+.status-rejected { background: rgba(160, 45, 35, 0.1); color: #8e2d24; }
 
 .status-list {
   list-style: none;

@@ -68,6 +68,24 @@ test("review submissions persist as pending and require authenticated moderation
     assert.equal(result.body.reviews.length, 1);
     assert.equal(result.body.reviews[0].name, "Amina");
     assert.equal(result.body.reviews[0].status, undefined);
+
+    result = await request(handler, `/api/admin/reviews/${reviewId}`, { method: "PATCH", headers: { authorization: auth }, body: JSON.stringify({ status: "pending" }) });
+    assert.equal(result.response.statusCode, 200);
+    result = await request(handler, "/api/reviews");
+    assert.deepEqual(result.body, { reviews: [] });
+
+    result = await request(handler, `/api/admin/reviews/${reviewId}`, { method: "PATCH", headers: { authorization: auth }, body: JSON.stringify({ status: "rejected" }) });
+    assert.equal(result.response.statusCode, 200);
+    result = await request(handler, "/api/reviews");
+    assert.deepEqual(result.body, { reviews: [] });
+
+    result = await request(handler, "/api/admin/reviews", { headers: { authorization: auth } });
+    assert.equal(result.body.reviews[0].status, "rejected");
+
+    result = await request(handler, `/api/admin/reviews/${reviewId}`, { method: "DELETE", headers: { authorization: auth } });
+    assert.equal(result.response.statusCode, 200);
+    result = await request(handler, "/api/admin/reviews", { headers: { authorization: auth } });
+    assert.deepEqual(result.body, { reviews: [] });
     await fs.access(path.join(dataDir, "reviews.json"));
   });
 });

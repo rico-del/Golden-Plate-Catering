@@ -27,8 +27,17 @@ async function request(handler, route, options = {}) {
   };
   const response = { statusCode: 200, headers: {}, body: "", setHeader(name, value) { this.headers[name.toLowerCase()] = value; }, writeHead(statusCode, headers = {}) { this.statusCode = statusCode; for (const [name, value] of Object.entries(headers)) this.headers[name.toLowerCase()] = value; }, end(chunk) { this.body += chunk ? chunk.toString() : ""; } };
   await handler(request, response);
-  return { response, body: JSON.parse(response.body || "{}") };
+  const parsedBody = response.headers["content-type"]?.startsWith("application/json") ? JSON.parse(response.body || "{}") : {};
+  return { response, body: parsedBody };
 }
+
+test("JPEG assets are served as images", async () => {
+  await withServer(async (handler) => {
+    const result = await request(handler, "/assets/dining_view.jpg");
+    assert.equal(result.response.statusCode, 200);
+    assert.match(result.response.headers["content-type"], /^image\/jpeg/);
+  });
+});
 
 test("review submissions persist as pending and require authenticated moderation", async () => {
   await withServer(async (handler, dataDir) => {

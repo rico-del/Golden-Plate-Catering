@@ -12,7 +12,14 @@ const requiredFiles = [
 ];
 const requiredAssets = [
   "background_video.mp4",
+  "breakfast_buffet.jpg",
   "dining_display.mp4",
+  "decoration.jpg",
+  "dining_view.jpg",
+  "dining_view2.jpg",
+  "ruracio(nyombo)_cake_display.jpg",
+  "table_setting2.jpg",
+  "warmers_display.jpg",
   "table_setting.mp4",
   "breakfast_arrowroots.png",
   "logo.png",

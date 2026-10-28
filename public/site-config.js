@@ -31,6 +31,80 @@ window.GOLDEN_PLATE_ASSETS = {
   },
   work: [
     {
+      id: "dining-view",
+      type: "image",
+      file: "/assets/dining_view.jpg",
+      title: "A gathering beneath the open sky",
+      category: "dining",
+      featured: true,
+      alt: "Outdoor dining area prepared for a catered gathering",
+      width: 2784,
+      height: 1856
+    },
+    {
+      id: "table-setting-two",
+      type: "image",
+      file: "/assets/table_setting2.jpg",
+      title: "A considered table setting",
+      category: "dining",
+      featured: true,
+      alt: "Guest tables arranged for a catered event",
+      width: 2784,
+      height: 1856
+    },
+    {
+      id: "warmers-display",
+      type: "image",
+      file: "/assets/warmers_display.jpg",
+      title: "Ready for service",
+      category: "buffet",
+      featured: true,
+      alt: "Buffet warmers set out for meal service",
+      width: 2784,
+      height: 1856
+    },
+    {
+      id: "ruracio-cake-display",
+      type: "image",
+      file: "/assets/ruracio(nyombo)_cake_display.jpg",
+      title: "A celebration cake on display",
+      category: "celebration",
+      featured: true,
+      alt: "Celebration cake arranged on a decorated display table",
+      width: 2784,
+      height: 1856
+    },
+    {
+      id: "dining-view-two",
+      type: "image",
+      file: "/assets/dining_view2.jpg",
+      title: "A welcoming dining space",
+      category: "dining",
+      alt: "Dining tables arranged inside a decorated event space",
+      width: 2784,
+      height: 1856
+    },
+    {
+      id: "event-decoration",
+      type: "image",
+      file: "/assets/decoration.jpg",
+      title: "Finishing touches",
+      category: "dining",
+      alt: "Decorative details prepared for a catered gathering",
+      width: 1856,
+      height: 2784
+    },
+    {
+      id: "breakfast-buffet",
+      type: "image",
+      file: "/assets/breakfast_buffet.jpg",
+      title: "A breakfast buffet",
+      category: "buffet",
+      alt: "Breakfast dishes arranged for buffet service",
+      width: 2784,
+      height: 1856
+    },
+    {
       id: "background-video",
       type: "video",
       file: "/assets/background_video.mp4",
@@ -77,9 +151,9 @@ window.GOLDEN_PLATE_ASSETS = {
       id: "gazebo-two",
       type: "image",
       file: "/assets/dining_gazebo_2.png",
-      title: "White and orange dining setup",
+      title: "White and Gold dining setup",
       category: "dining",
-      alt: "White covered chairs with orange sashes arranged inside a covered dining space",
+      alt: "White covered chairs with gold sashes arranged inside a covered dining space",
       width: 1600,
       height: 720
     },

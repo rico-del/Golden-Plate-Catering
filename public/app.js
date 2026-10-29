@@ -65,10 +65,18 @@ function button(path, label, className = "") {
   return `<a class="button ${className}" href="${path}" data-nav>${escapeHtml(label)} <span aria-hidden="true">↗</span></a>`;
 }
 
+function mediaThumbnail(item) {
+  const isVideo = item.type === "video";
+  const source = isVideo ? item.poster : item.file;
+  const width = isVideo ? item.posterWidth : item.width;
+  const height = isVideo ? item.posterHeight : item.height;
+  return `<img src="${escapeHtml(source)}" alt="${escapeHtml(item.alt || item.title)}" loading="lazy" width="${width || 800}" height="${height || 600}">`;
+}
+
 function mediaCard(item, className = "") {
   const mediaType = item.type === "video" ? "Video" : "Image";
   const playMark = item.type === "video" ? `<span class="play-mark" aria-hidden="true">▶</span>` : "";
-  return `<button class="media-card ${className}" type="button" data-media-trigger data-media-id="${escapeHtml(item.id)}" aria-label="Open ${escapeHtml(item.title)} in media viewer"><img src="${escapeHtml(item.file)}" alt="${escapeHtml(item.alt || item.title)}" loading="lazy" width="${item.width || 800}" height="${item.height || 600}">${playMark}<span class="media-card-label">${escapeHtml(mediaType)}</span></button>`;
+  return `<button class="media-card ${className}" type="button" data-media-trigger data-media-id="${escapeHtml(item.id)}" aria-label="Open ${escapeHtml(item.title)} in media viewer">${mediaThumbnail(item)}${playMark}<span class="media-card-label">${escapeHtml(mediaType)}</span></button>`;
 }
 
 function foodCard(item) {
@@ -131,7 +139,7 @@ function renderServices() {
 function renderWork() {
   const filters = ["all", "video", "dining", "buffet", "celebration"];
   return `${pageHero("Our work", "A closer look at the details.", "Browse past gatherings, from the food and buffet to the dining setup and finishing touches.")}
-  <section class="section section-white"><div class="container"><div class="gallery-controls" role="group" aria-label="Filter work"><button class="filter-button" type="button" data-filter="all" aria-pressed="true">All</button>${filters.filter((filter) => filter !== "all").map((filter) => `<button class="filter-button" type="button" data-filter="${filter}" aria-pressed="false">${escapeHtml(filter.charAt(0).toUpperCase() + filter.slice(1))}</button>`).join("")}</div><div class="gallery-grid" data-gallery>${assets.work.map((item) => `<figure class="gallery-item" data-category="${escapeHtml(item.category || "all")}"><button class="gallery-trigger" type="button" data-media-trigger data-media-id="${escapeHtml(item.id)}" aria-label="Open ${escapeHtml(item.title)}"><img src="${escapeHtml(item.file)}" alt="${escapeHtml(item.alt || item.title)}" loading="lazy" width="${item.width || 900}" height="${item.height || 600}"></button><figcaption>${escapeHtml(item.title)}</figcaption></figure>`).join("")}</div></div></section>`;
+  <section class="section section-white"><div class="container"><div class="gallery-controls" role="group" aria-label="Filter work"><button class="filter-button" type="button" data-filter="all" aria-pressed="true">All</button>${filters.filter((filter) => filter !== "all").map((filter) => `<button class="filter-button" type="button" data-filter="${filter}" aria-pressed="false">${escapeHtml(filter.charAt(0).toUpperCase() + filter.slice(1))}</button>`).join("")}</div><div class="gallery-grid" data-gallery>${assets.work.map((item) => `<figure class="gallery-item" data-category="${escapeHtml(item.category || "all")}"><button class="gallery-trigger" type="button" data-media-trigger data-media-id="${escapeHtml(item.id)}" aria-label="Open ${escapeHtml(item.title)}">${mediaThumbnail(item)}</button><figcaption>${escapeHtml(item.title)}</figcaption></figure>`).join("")}</div></div></section>`;
 }
 
 function renderMenu() {

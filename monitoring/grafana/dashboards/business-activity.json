@@ -1,0 +1,13 @@
+{
+  "annotations": { "list": [] },
+  "editable": false,
+  "panels": [
+    { "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }, "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }, "id": 1, "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }, "targets": [{ "expr": "increase(enquiries_submitted_total{environment=\"production\"}[1h])", "refId": "A" }], "title": "Successfully persisted enquiries (last hour)", "type": "timeseries" },
+    { "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }, "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }, "id": 2, "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }, "targets": [{ "expr": "increase(enquiries_failed_total{environment=\"production\"}[1h])", "refId": "A" }], "title": "Failed enquiry submissions (last hour)", "type": "timeseries" },
+    { "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }, "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 }, "id": 3, "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }, "targets": [{ "expr": "increase(reviews_submitted_total{environment=\"production\"}[1h])", "refId": "A" }], "title": "Successfully persisted reviews (last hour)", "type": "timeseries" }
+  ],
+  "schemaVersion": 39,
+  "title": "Business Activity",
+  "uid": "golden-plate-business",
+  "version": 1
+}

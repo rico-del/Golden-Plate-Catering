@@ -1,0 +1,115 @@
+groups:
+  - name: golden-plate-recording
+    interval: 30s
+    rules:
+      - record: application:http_requests:rate5m
+        expr: sum by (route) (rate(http_requests_total{environment="production"}[5m]))
+      - record: application:http_errors:ratio5m
+        expr: sum(rate(http_requests_failed_total{environment="production"}[5m])) / clamp_min(sum(rate(http_requests_total{environment="production"}[5m])), 0.001)
+      - record: application:http_request_duration_seconds:p95
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{environment="production"}[5m])))
+      - record: business:enquiries:rate5m
+        expr: sum(rate(enquiries_submitted_total{environment="production"}[5m]))
+      - record: business:reviews:rate5m
+        expr: sum(rate(reviews_submitted_total{environment="production"}[5m]))
+
+  - name: golden-plate-alerts
+    rules:
+      - alert: ProductionHttpProbeFailed
+        expr: probe_success{job="production-http"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: Production HTTP endpoint is unavailable
+          description: The public probe for {{ $labels.instance }} has failed for at least three minutes.
+
+      - alert: ProductionApplicationMetricsUnavailable
+        expr: up{job="production-app"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Production application metrics cannot be scraped
+          description: The authenticated production metrics target has been unavailable for five minutes.
+
+      - alert: ProductionNodeExporterUnavailable
+        expr: up{job="production-node-exporter"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Production host metrics are unavailable
+          description: The private Node Exporter target has been unreachable for five minutes.
+
+      - alert: MonitoringNodeExporterUnavailable
+        expr: up{job="node-exporter"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Monitoring host metrics are unavailable
+          description: Node Exporter on the monitoring host has been unreachable for five minutes.
+
+      - alert: PrometheusTargetUnavailable
+        expr: up{job="prometheus"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Prometheus self-monitoring target is unavailable
+          description: Prometheus has not scraped its own target successfully for five minutes.
+
+      - alert: ProductionCpuHigh
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle",host_role="production"}[5m])) * 100) > 85
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Production host CPU usage is high
+          description: CPU utilization has remained above 85 percent for 15 minutes.
+
+      - alert: ProductionMemoryHigh
+        expr: 1 - (node_memory_MemAvailable_bytes{host_role="production"} / node_memory_MemTotal_bytes{host_role="production"}) > 0.90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Production host memory usage is high
+          description: Memory utilization has remained above 90 percent for 10 minutes.
+
+      - alert: ProductionFilesystemNearlyFull
+        expr: 1 - (node_filesystem_avail_bytes{host_role="production",mountpoint="/",fstype!="rootfs"} / node_filesystem_size_bytes{host_role="production",mountpoint="/",fstype!="rootfs"}) > 0.85
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Production root filesystem is nearly full
+          description: Root filesystem usage has remained above 85 percent for 10 minutes.
+
+      - alert: ProductionHttp5xxRateHigh
+        expr: application:http_errors:ratio5m > 0.05
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Production HTTP 5xx rate is elevated
+          description: More than five percent of observed requests have returned server errors for 10 minutes.
+
+      - alert: ProductionRequestLatencyHigh
+        expr: application:http_request_duration_seconds:p95 > 1.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Production request latency is elevated
+          description: The five-minute p95 HTTP latency has exceeded 1.5 seconds for 10 minutes.
+
+      - alert: ProductionTlsCertificateExpiring
+        expr: (probe_ssl_earliest_cert_expiry{job="production-http"} - time()) / 86400 < 14
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Production TLS certificate is nearing expiry
+          description: The certificate for {{ $labels.instance }} expires in less than 14 days.

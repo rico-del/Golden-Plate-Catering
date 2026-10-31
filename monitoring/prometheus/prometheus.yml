@@ -1,0 +1,60 @@
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus/rules.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: [alertmanager:9093]
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: [prometheus:9090]
+
+  - job_name: node-exporter
+    static_configs:
+      - targets: [node-exporter:9100]
+        labels:
+          host_role: monitoring
+
+  - job_name: production-node-exporter
+    file_sd_configs:
+      - files: [/etc/prometheus/targets/production-host.json]
+        refresh_interval: 60s
+    relabel_configs:
+      - target_label: host_role
+        replacement: production
+
+  - job_name: blackbox-exporter
+    static_configs:
+      - targets: [blackbox-exporter:9115]
+
+  - job_name: production-app
+    metrics_path: /metrics
+    scheme: https
+    bearer_token_file: /run/secrets/app_metrics_token
+    static_configs:
+      - targets: [goldenplatecatering.duckdns.org]
+        labels:
+          environment: production
+
+  - job_name: production-http
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://goldenplatecatering.duckdns.org/
+          - https://goldenplatecatering.duckdns.org/api/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

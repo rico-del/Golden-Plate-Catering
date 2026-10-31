@@ -5,9 +5,9 @@ import path from "node:path";
 import test from "node:test";
 import { createServer } from "../server.mjs";
 
-async function withServer(run) {
+async function withServer(run, options = {}) {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "golden-plate-test-"));
-  const server = createServer({ dataDir, mongoUri: "", adminUsername: "moderator", adminPassword: "correct-horse" });
+  const server = createServer({ dataDir, mongoUri: "", adminUsername: "moderator", adminPassword: "correct-horse", ...options });
   const handler = server.listeners("request")[0];
   try {
     await run(handler, dataDir);
@@ -25,7 +25,7 @@ async function request(handler, route, options = {}) {
     socket: { remoteAddress: "test-client" },
     async *[Symbol.asyncIterator]() { if (body) yield Buffer.from(body); }
   };
-  const response = { statusCode: 200, headers: {}, body: "", setHeader(name, value) { this.headers[name.toLowerCase()] = value; }, writeHead(statusCode, headers = {}) { this.statusCode = statusCode; for (const [name, value] of Object.entries(headers)) this.headers[name.toLowerCase()] = value; }, end(chunk) { this.body += chunk ? chunk.toString() : ""; } };
+  const response = { statusCode: 200, headers: {}, body: "", setHeader(name, value) { this.headers[name.toLowerCase()] = value; }, writeHead(statusCode, headers = {}) { this.statusCode = statusCode; for (const [name, value] of Object.entries(headers)) this.headers[name.toLowerCase()] = value; }, once(event, listener) { if (event === "finish") this.finishListener = listener; return this; }, end(chunk) { this.body += chunk ? chunk.toString() : ""; this.finishListener?.(); } };
   await handler(request, response);
   const parsedBody = response.headers["content-type"]?.startsWith("application/json") ? JSON.parse(response.body || "{}") : {};
   return { response, body: parsedBody };
@@ -131,4 +131,49 @@ test("enquiries validate and can be tracked through admin status updates", async
     assert.equal(result.response.statusCode, 200);
     assert.equal(result.body.enquiries[0].status, "quoted");
   });
+});
+
+test("metrics require a bearer token and expose aggregate persisted activity", async () => {
+  await withServer(async (handler, dataDir) => {
+    let result = await request(handler, "/metrics");
+    assert.equal(result.response.statusCode, 404);
+
+    result = await request(handler, "/api/enquiries", {
+      method: "POST",
+      body: JSON.stringify({ name: "Private Customer", email: "private@example.com", phone: "+254712345678", message: "Please provide catering details for an upcoming event." })
+    });
+    assert.equal(result.response.statusCode, 201);
+
+    result = await request(handler, "/api/reviews", {
+      method: "POST",
+      body: JSON.stringify({ name: "Private Reviewer", rating: 5, text: "A private review that should never appear in metric labels." })
+    });
+    assert.equal(result.response.statusCode, 201);
+
+    await fs.writeFile(path.join(dataDir, "deployment-state.json"), `${JSON.stringify({
+      successes: 2,
+      failures: 1,
+      rollbacks: 1,
+      last_duration_seconds: 18,
+      last_success_timestamp_seconds: 1_800_000_000,
+      last_result: "success"
+    })}\n`);
+
+    result = await request(handler, "/metrics", { headers: { authorization: "Bearer test-metrics-token" } });
+    assert.equal(result.response.statusCode, 200);
+    assert.match(result.response.body, /http_requests_total\{method="POST",route="api_enquiries",status_code="201",environment="test"\} 1/);
+    assert.match(result.response.body, /http_request_duration_seconds_count\{method="POST",route="api_enquiries",environment="test"\} 1/);
+    assert.match(result.response.body, /enquiries_submitted_total\{environment="test"\} 1/);
+    assert.match(result.response.body, /reviews_submitted_total\{environment="test"\} 1/);
+    assert.match(result.response.body, /application_info\{version="test-release",environment="test"\} 1/);
+    assert.match(result.response.body, /deployment_successes_total 2/);
+    assert.match(result.response.body, /deployment_failures_total 1/);
+    assert.match(result.response.body, /deployment_rollbacks_total 1/);
+    assert.match(result.response.body, /deployment_duration_seconds 18/);
+    assert.match(result.response.body, /deployment_last_success_timestamp_seconds 1800000000/);
+    assert.doesNotMatch(result.response.body, /Private Customer|Private Reviewer|private@example\.com|\+254712345678/);
+
+    result = await request(handler, "/metrics", { headers: { authorization: "Bearer test-metrics-token" } });
+    assert.equal((result.response.body.match(/deployment_successes_total 2/g) || []).length, 1);
+  }, { env: { NODE_ENV: "test" }, metricsToken: "test-metrics-token", appVersion: "test-release" });
 });

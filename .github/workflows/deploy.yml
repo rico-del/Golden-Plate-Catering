@@ -1,0 +1,332 @@
+name: Production deployment
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Existing 40-character release SHA to redeploy or roll back to (leave blank to build this commit)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: golden-plate-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate optional release SHA
+        if: inputs.release_sha != ''
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          if [[ ! "$RELEASE_SHA" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "Release identifier must be a full 40-character commit SHA." >&2
+            exit 1
+          fi
+
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha || github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check, build, and test
+        run: |
+          npm run check
+          npm run build
+          npm test
+
+  deploy:
+    needs: verify
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    outputs:
+      release_sha: ${{ steps.release.outputs.release_id }}
+      rollback_result: ${{ steps.ssm.outputs.rollback_result || steps.external_rollback.outputs.rollback_result }}
+      rollback_started: ${{ steps.ssm.outputs.rollback_started || steps.external_rollback.outputs.rollback_started || 'false' }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_DEPLOYMENT_BUCKET: ${{ vars.AWS_DEPLOYMENT_BUCKET }}
+      EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+      REQUESTED_RELEASE_SHA: ${{ inputs.release_sha }}
+      PRODUCTION_URL: https://goldenplatecatering.duckdns.org
+
+    steps:
+      - name: Check out source
+        if: inputs.release_sha == ''
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        if: inputs.release_sha == ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate release identifier
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_id="${REQUESTED_RELEASE_SHA:-$GITHUB_SHA}"
+          if [[ ! "$release_id" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "Release identifier must be a full 40-character commit SHA." >&2
+            exit 1
+          fi
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+          echo "Deployment request: release $release_id (workflow commit $GITHUB_SHA)"
+
+      - name: Package immutable release
+        if: inputs.release_sha == ''
+        run: bash scripts/package-deployment.sh "$RUNNER_TEMP/golden-plate-${{ steps.release.outputs.release_id }}.tar.gz"
+
+      - name: Validate production deployment settings
+        env:
+          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          for variable in AWS_ROLE_ARN AWS_REGION AWS_DEPLOYMENT_BUCKET EC2_INSTANCE_ID; do
+            if [[ -z "${!variable}" ]]; then
+              echo "Required production environment variable $variable is not configured." >&2
+              exit 1
+            fi
+          done
+          [[ "$AWS_REGION" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]] || { echo "AWS_REGION has an invalid format." >&2; exit 1; }
+          [[ "$AWS_DEPLOYMENT_BUCKET" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]] || { echo "AWS_DEPLOYMENT_BUCKET has an invalid format." >&2; exit 1; }
+          [[ "$EC2_INSTANCE_ID" =~ ^i-[a-f0-9]{17}$ ]] || { echo "EC2_INSTANCE_ID has an invalid format." >&2; exit 1; }
+
+      - name: Configure AWS credentials with GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Publish immutable release artifact
+        if: inputs.release_sha == ''
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/golden-plate-${RELEASE_ID}.tar.gz"
+          checksum=$(sha256sum "$archive" | cut -d ' ' -f 1)
+          key="releases/production/${RELEASE_ID}.tar.gz"
+          existing=$(aws s3api head-object --bucket "$AWS_DEPLOYMENT_BUCKET" --key "$key" --query 'Metadata.sha256' --output text 2>/dev/null || true)
+          if [[ "$existing" == "$checksum" ]]; then
+            echo "Immutable artifact already exists with the expected checksum: $RELEASE_ID"
+          elif [[ "$existing" != "None" && -n "$existing" ]]; then
+            echo "An artifact already exists for $RELEASE_ID with a different checksum; refusing to overwrite it." >&2
+            exit 1
+          else
+            aws s3api put-object \
+              --bucket "$AWS_DEPLOYMENT_BUCKET" \
+              --key "$key" \
+              --body "$archive" \
+              --server-side-encryption AES256 \
+              --checksum-algorithm SHA256 \
+              --if-none-match '*' \
+              --metadata "commit-sha=${RELEASE_ID},sha256=${checksum}" \
+              >/dev/null
+            echo "Published immutable artifact s3://$AWS_DEPLOYMENT_BUCKET/$key (sha256 $checksum)"
+          fi
+
+      - name: Verify release artifact exists
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          artifact_sha=$(aws s3api head-object --bucket "$AWS_DEPLOYMENT_BUCKET" --key "releases/production/${RELEASE_ID}.tar.gz" --query 'Metadata."commit-sha"' --output text)
+          if [[ "$artifact_sha" != "$RELEASE_ID" ]]; then
+            echo "Release artifact metadata does not match the requested SHA." >&2
+            exit 1
+          fi
+
+      - name: Notify deployment started
+        if: env.SLACK_DEPLOYMENT_WEBHOOK_URL != ''
+        continue-on-error: true
+        env:
+          SLACK_DEPLOYMENT_WEBHOOK_URL: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {"text":"Golden Plate production deployment started\nCommit: `${{ steps.release.outputs.release_id }}`\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
+
+      - name: Trigger serialized SSM deployment
+        id: ssm
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          for variable in AWS_REGION AWS_DEPLOYMENT_BUCKET EC2_INSTANCE_ID; do
+            if [[ -z "${!variable}" ]]; then
+              echo "Required repository variable $variable is not configured." >&2
+              exit 1
+            fi
+          done
+          remote_command=$(cat <<EOF
+          bash <<'GOLDEN_PLATE_DEPLOY'
+          set -euo pipefail
+          work_dir=\$(mktemp -d /tmp/golden-plate-deploy.XXXXXX)
+          trap 'rm -rf "\$work_dir"' EXIT
+          key="releases/production/$RELEASE_ID.tar.gz"
+          expected_sha=\$(aws s3api head-object --bucket "$AWS_DEPLOYMENT_BUCKET" --key "\$key" --query 'Metadata.sha256' --output text --region "$AWS_REGION")
+          [[ "\$expected_sha" =~ ^[a-f0-9]{64}$ ]] || { echo 'Artifact checksum metadata is invalid.' >&2; exit 1; }
+          aws s3 cp "s3://$AWS_DEPLOYMENT_BUCKET/\$key" "\$work_dir/release.tar.gz" --region "$AWS_REGION" --only-show-errors
+          printf '%s  %s\n' "\$expected_sha" "\$work_dir/release.tar.gz" | sha256sum --check --status || { echo 'Downloaded release checksum does not match S3 metadata.' >&2; exit 1; }
+          mkdir "\$work_dir/unpacked"
+          tar --no-same-owner -xzf "\$work_dir/release.tar.gz" -C "\$work_dir/unpacked"
+          bash "\$work_dir/unpacked/scripts/deploy-release.sh" "$RELEASE_ID" "\$work_dir/unpacked"
+          GOLDEN_PLATE_DEPLOY
+          EOF
+          )
+          parameters=$(jq -cn --arg command "$remote_command" '{commands: [$command]}')
+          command_id=$(aws ssm send-command \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "Golden Plate release $RELEASE_ID" \
+            --timeout-seconds 900 \
+            --parameters "$parameters" \
+            --query Command.CommandId \
+            --output text)
+          echo "command_id=$command_id" >> "$GITHUB_OUTPUT"
+          echo "SSM deployment command: $command_id"
+          if ! aws ssm wait command-executed --command-id "$command_id" --instance-id "$EC2_INSTANCE_ID"; then
+            invocation=$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$EC2_INSTANCE_ID" --query '{Status:Status,Code:ResponseCode,Output:StandardOutputContent}' --output json)
+            status=$(jq -r '.Status' <<<"$invocation")
+            code=$(jq -r '.Code' <<<"$invocation")
+            result=$(jq -r '.Output | split("\\n") | map(select(startswith("DEPLOYMENT_RESULT=") or startswith("ROLLBACK_RESULT="))) | join("; ")' <<<"$invocation")
+            rollback_result=$(jq -r '.Output | split("\\n") | map(select(startswith("ROLLBACK_RESULT="))) | join("")' <<<"$invocation")
+            rollback_started=$(jq -r '.Output | split("\\n") | map(select(startswith("ROLLBACK_STARTED "))) | length > 0' <<<"$invocation")
+            echo "rollback_result=${rollback_result#ROLLBACK_RESULT=}" >> "$GITHUB_OUTPUT"
+            echo "rollback_started=$rollback_started" >> "$GITHUB_OUTPUT"
+            echo "SSM deployment failed (status=$status, response_code=$code${result:+, $result}). Inspect the command invocation for host-side diagnostics." >&2
+            exit 1
+          fi
+          echo "SSM deployment completed successfully."
+
+      - name: Verify production health and version
+        id: health
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          for attempt in {1..12}; do
+            response=$(curl --fail --silent --show-error --max-time 10 "$PRODUCTION_URL/api/health" 2>/dev/null || true)
+            if [[ -n "$response" ]] && node -e 'const [body, expected] = process.argv.slice(1); try { const health = JSON.parse(body); process.exit(health.status === "ok" && health.version === expected ? 0 : 1); } catch { process.exit(1); }' "$response" "$RELEASE_ID"; then
+              echo "Production health and release version verified: $RELEASE_ID"
+              exit 0
+            fi
+            printf 'Waiting for production health/version check (%s/12).\n' "$attempt"
+            sleep 5
+          done
+          echo "Production health/version verification failed for release $RELEASE_ID. A host rollback will be requested." >&2
+          exit 1
+
+      - name: Advisory Prometheus scrape check
+        if: success() && vars.MONITORING_INSTANCE_ID != ''
+        env:
+          MONITORING_INSTANCE_ID: ${{ vars.MONITORING_INSTANCE_ID }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$MONITORING_INSTANCE_ID" =~ ^i-[a-f0-9]{17}$ ]]; then
+            echo "::warning:: Monitoring scrape check skipped because MONITORING_INSTANCE_ID is invalid."
+            exit 0
+          fi
+          command="set -eu; response=\$(curl --fail --silent --show-error --max-time 5 http://127.0.0.1:9090/api/v1/targets); printf '%s' \"\$response\" | jq -e '.data.activeTargets | any(.[]; .labels.job == \"production-app\" and .health == \"up\")' >/dev/null"
+          parameters=$(jq -cn --arg command "$command" '{commands: [$command]}')
+          command_id=$(aws ssm send-command \
+            --instance-ids "$MONITORING_INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "Advisory Golden Plate Prometheus scrape verification" \
+            --timeout-seconds 30 \
+            --parameters "$parameters" \
+            --query Command.CommandId \
+            --output text) || { echo "::warning:: Prometheus scrape verification could not be dispatched; application health remains the release gate."; exit 0; }
+          if aws ssm wait command-executed --command-id "$command_id" --instance-id "$MONITORING_INSTANCE_ID"; then
+            echo "Prometheus reports the production-app target as up."
+          else
+            echo "::warning:: Prometheus scrape check failed for SSM command $command_id; application health is verified, but monitoring is advisory."
+          fi
+
+      - name: Roll back after public health verification failure
+        id: external_rollback
+        if: failure() && steps.health.outcome == 'failure' && steps.ssm.outcome == 'success'
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          echo 'rollback_started=true' >> "$GITHUB_OUTPUT"
+          remote_command=$(cat <<EOF
+          bash <<'GOLDEN_PLATE_ROLLBACK'
+          set -euo pipefail
+          work_dir=\$(mktemp -d /tmp/golden-plate-rollback.XXXXXX)
+          trap 'rm -rf "\$work_dir"' EXIT
+          key="releases/production/$RELEASE_ID.tar.gz"
+          expected_sha=\$(aws s3api head-object --bucket "$AWS_DEPLOYMENT_BUCKET" --key "\$key" --query 'Metadata.sha256' --output text --region "$AWS_REGION")
+          [[ "\$expected_sha" =~ ^[a-f0-9]{64}$ ]] || { echo 'Artifact checksum metadata is invalid.' >&2; exit 1; }
+          aws s3 cp "s3://$AWS_DEPLOYMENT_BUCKET/\$key" "\$work_dir/release.tar.gz" --region "$AWS_REGION" --only-show-errors
+          printf '%s  %s\n' "\$expected_sha" "\$work_dir/release.tar.gz" | sha256sum --check --status || { echo 'Downloaded release checksum does not match S3 metadata.' >&2; exit 1; }
+          mkdir "\$work_dir/unpacked"
+          tar --no-same-owner -xzf "\$work_dir/release.tar.gz" -C "\$work_dir/unpacked"
+          bash "\$work_dir/unpacked/scripts/rollback-release.sh" "\$work_dir/unpacked/scripts"
+          GOLDEN_PLATE_ROLLBACK
+          EOF
+          )
+          parameters=$(jq -cn --arg command "$remote_command" '{commands: [$command]}')
+          command_id=$(aws ssm send-command --instance-ids "$EC2_INSTANCE_ID" --document-name AWS-RunShellScript --comment "Rollback Golden Plate release $RELEASE_ID" --timeout-seconds 900 --parameters "$parameters" --query Command.CommandId --output text)
+          echo "SSM rollback command: $command_id"
+          if ! aws ssm wait command-executed --command-id "$command_id" --instance-id "$EC2_INSTANCE_ID"; then
+            invocation=$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$EC2_INSTANCE_ID" --query '{Status:Status,Output:StandardOutputContent}' --output json)
+            result=$(jq -r '.Output | split("\\n") | map(select(startswith("ROLLBACK_RESULT="))) | join("")' <<<"$invocation")
+            echo "rollback_result=${result#ROLLBACK_RESULT=}" >> "$GITHUB_OUTPUT"
+            echo "Automatic rollback command failed; inspect SSM command $command_id." >&2
+            exit 1
+          fi
+          invocation=$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$EC2_INSTANCE_ID" --query StandardOutputContent --output text)
+          result=$(printf '%s\n' "$invocation" | sed -n 's/^ROLLBACK_RESULT=//p' | tail -n 1)
+          echo "rollback_result=${result:-SUCCESS}"
+          echo "rollback_result=${result:-SUCCESS}" >> "$GITHUB_OUTPUT"
+
+  notify:
+    if: always() && github.ref == 'refs/heads/main'
+    needs: [verify, deploy]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Report deployment outcome to Slack
+        if: env.SLACK_DEPLOYMENT_WEBHOOK_URL != ''
+        continue-on-error: true
+        env:
+          SLACK_DEPLOYMENT_WEBHOOK_URL: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
+          DEPLOY_RESULT: ${{ needs.verify.result == 'success' && needs.deploy.result == 'success' && 'success' || 'failure' }}
+          RELEASE_ID: ${{ needs.deploy.outputs.release_sha || github.sha }}
+          ROLLBACK_RESULT: ${{ needs.deploy.outputs.rollback_result || 'not required or not confirmed' }}
+          ROLLBACK_STARTED: ${{ needs.deploy.outputs.rollback_started || 'false' }}
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {"text":"Golden Plate production deployment `${{ env.DEPLOY_RESULT }}`\nRelease: `${{ env.RELEASE_ID }}`\nEnvironment: production\nRollback initiated: `${{ env.ROLLBACK_STARTED }}`\nRollback result: `${{ env.ROLLBACK_RESULT }}`\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}

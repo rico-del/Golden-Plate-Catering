@@ -1,0 +1,33 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: golden-plate-operational
+  group_by: [alertname, instance, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - receiver: golden-plate-operational
+      matchers:
+        - severity=~"warning|critical"
+      continue: false
+
+receivers:
+  - name: golden-plate-operational
+    slack_configs:
+      - api_url_file: /run/secrets/slack_alerts_webhook
+        channel: "#golden-plate-alerts"
+        username: "Golden Plate monitoring"
+        send_resolved: true
+        title: '{{ if eq .Status "firing" }}[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}{{ else }}[RESOLVED] {{ .CommonLabels.alertname }}{{ end }}'
+        text: >-
+          {{ range .Alerts }}{{ .Annotations.summary }}
+          {{ .Annotations.description }}
+          Severity: {{ .Labels.severity }}
+          {{ end }}
+
+inhibit_rules:
+  - source_matchers: [severity="critical"]
+    target_matchers: [severity="warning"]
+    equal: [alertname, instance]

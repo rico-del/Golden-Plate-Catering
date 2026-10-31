@@ -1,8 +1,63 @@
 # Golden Plate Catering
 
-A dependency-light, responsive website for Golden Plate Catering. The project uses Node's built-in HTTP server, a static frontend, and server-side JSON persistence for the current enquiry and review workflows.
+**Production status: live.** [Visit Golden Plate Catering](https://goldenplatecatering.duckdns.org/)
 
-## Run locally
+## Project Overview
+
+Golden Plate Catering is a real catering business. This repository contains its commissioned public website, built and deployed by me as the engineering owner for the client engagement. The website gives the business a digital place to present its catering work and services and makes it easier for prospective customers to send enquiries.
+
+The project is intended to strengthen the business's online presence and discoverability. Those are objectives, not measured outcomes: no traffic, ranking, conversion or revenue claims are made here.
+
+## Website Capabilities
+
+- Responsive public pages for the business, services, work, menu, reviews, contact and privacy information.
+- Supplied event imagery and video, with accessible descriptions.
+- Server-validated catering enquiries, persisted server-side and presented in an authenticated owner dashboard.
+- Customer reviews submitted for moderation; only approved reviews appear publicly.
+- Rate limiting, honeypot checks, security headers and a health endpoint.
+- Public business contact and social details remain blank until approved by the client.
+
+## Technology
+
+- Node.js HTTP server (Node.js 20+; CI uses Node.js 22), ES modules and a static HTML/CSS/JavaScript frontend.
+- MongoDB Node.js driver. Production persistence is MongoDB Atlas; local development can use ignored JSON files when `MONGODB_URI` is unset.
+- AWS EC2 running Ubuntu, Nginx, systemd and SSM Agent. Nginx terminates HTTPS and proxies to the host-managed Node process.
+- Terraform manages the AWS deployment resources and MongoDB Atlas configuration.
+- GitHub Actions provides CI, a GHCR container build, and a separate tarball-based production deployment workflow.
+
+## Production Architecture
+
+The live application is not running in Docker. The existing production path bootstrapped a tarball from a private S3 bucket onto EC2; the service is managed by `golden-plate.service`, and runtime credentials are retrieved from SSM Parameter Store using the EC2 instance role. The production `/api/health` endpoint and public HTTPS site were checked during this implementation.
+
+```mermaid
+flowchart LR
+	Developer --> Repo[GitHub repository]
+	Repo --> CI[GitHub Actions CI]
+	CI --> GHCR[GHCR image build]
+	Bootstrap[S3 bootstrap tarball] --> EC2[Ubuntu EC2]
+	EC2 --> Node[Node.js systemd service]
+	Node --> Mongo[(MongoDB Atlas)]
+	Visitor --> Nginx[Nginx HTTPS]
+	Nginx --> Node
+	Node --> Health[GET /api/health]
+	Repo -. configured; AWS setup required .-> CD[Production deployment workflow]
+	CD -. GitHub OIDC .-> IAM[Dedicated deployment role]
+	CD -. immutable SHA tarball .-> S3[S3 release prefix]
+	CD -. SSM Run Command .-> EC2
+	CD -. public health and version check .-> Health
+```
+
+The new deployment workflow does not change the live host until its prerequisites are configured and it is run. It packages immutable commit-SHA tarballs, uploads them under a dedicated S3 prefix, invokes a host-side staged release, restarts systemd, checks local and public health/version, and restores the previous release on a failed check. The switch includes a brief systemd restart; zero downtime is not claimed. A manual dispatch can redeploy an existing SHA for rollback.
+
+### CI and Deployment
+
+`.github/workflows/ci.yml` runs checks, build and tests on pull requests and pushes to `main`, and builds/publishes the existing GHCR image. `.github/workflows/deploy.yml` separately verifies and deploys only from `main` through GitHub OIDC, S3 and SSM. Production deployments are serialized and are never triggered by pull requests.
+
+The deployment workflow is implemented but not yet operational: the Terraform role has not been applied, the GitHub production Environment and variables are not configured, and no deployment has been run against the live host. See [Terraform deployment setup](terraform/README.md) for the exact activation steps.
+
+## Local Development
+
+Requirements: Node.js 22 recommended and npm.
 
 ```sh
 npm ci
@@ -12,60 +67,49 @@ npm test
 npm start
 ```
 
-Open `http://127.0.0.1:3000`. Development mode uses `npm run dev`.
+Open `http://127.0.0.1:3000`. `npm run dev` starts the Node watch mode.
 
-Use Node.js 22 or newer for local development.
+Copy `.env.example` to `.env` for local configuration. `MONGODB_URI` must start with `mongodb://` or `mongodb+srv://`; leave it empty to use local JSON persistence. The server reads `.env` without overriding shell-provided values. Do not use production credentials or data for local testing. The `.env` parser accepts matching single or double quotes around values.
 
-## Docker
+### Docker
 
-Build and run the container with a persistent data volume:
+Docker remains useful for local container testing and the existing GHCR image workflow; it is not the production deployment runtime.
 
 ```sh
 docker build -t golden-plate-catering .
 docker volume create golden-plate-data
 docker run --rm -p 3000:3000 \
 	-v golden-plate-data:/data \
-	-e ADMIN_USERNAME='your-admin-name' \
+	-e ADMIN_USERNAME='local-moderator' \
 	-e ADMIN_PASSWORD='use-a-long-random-password' \
 	golden-plate-catering
 ```
 
-The image runs as the unprivileged `node` user, exposes port 3000, and includes a health check. Keep `/data` on a persistent volume when using JSON-file persistence. For production, inject secrets through the platform's secret manager rather than baking them into the image or source tree.
+The container runs as the unprivileged `node` user and has a health check. Persist `/data` when using local JSON persistence; supply production secrets only through a secret manager.
 
-## GitHub Actions
+## Configuration and Data
 
-The workflow runs dependency installation, syntax checks, the build check, tests, and a container build for pull requests to `main`. Pushes to `main` publish the image to GitHub Container Registry as `ghcr.io/<owner>/<repository>:sha-<commit>` and `:latest`.
+Public-facing contact, social, story and service values are maintained in `public/site-config.js` and must be approved by the client before publication. Server settings are documented in `.env.example`. The production host loads MongoDB and moderation credentials from SSM Parameter Store; no such values belong in this repository or GitHub variables.
 
-This publishes an image but does not deploy it. Production currently provisions a host-based systemd service from a Terraform-managed S3 tarball. Before enabling automatic rollout, migrate the EC2 bootstrap and service to Docker, choose a persistent `/data` strategy, and give Actions narrowly scoped AWS access through GitHub OIDC and SSM (or another controlled deployment mechanism). Do not deploy merely by replacing the S3 object: the current service does not restart itself on artifact changes.
+Production enquiry and review records are stored in MongoDB Atlas. Deployment archives exclude `.env`, JSON data, Terraform files/state, local dependencies and generated output. The release installer keeps application releases under `/opt/golden-plate/releases` and configures the JSON fallback directory at `/var/lib/golden-plate/data`, outside the release tree; the current live application uses Atlas. Local JSON files are ignored by Git. Back up MongoDB and protect Terraform state independently.
 
-## Configuration
+## Observability
 
-Copy `.env.example` to `.env` and provide values before local use, or inject the same variables through the deployment environment. The server reads a local `.env` without overriding variables already supplied by the host. The public contact and social values are deliberately blank until the client supplies and approves them. `ADMIN_USERNAME` and `ADMIN_PASSWORD` are required for the protected moderation endpoints; use a long random password and inject them through the deployment environment.
+The application now has an authenticated `/metrics` endpoint with bounded route/method/status/environment labels, request latency and aggregate enquiry/review/deployment counters. Metrics are disabled unless `METRICS_TOKEN` is configured. The Prometheus/Grafana/Alertmanager/Node Exporter/Blackbox configuration and five provisioned dashboards are in [`monitoring/`](monitoring/README.md).
 
-The current persistence layer writes `data/reviews.json` and `data/enquiries.json`. These files are ignored by Git. For a multi-instance deployment, replace this adapter with an approved managed database and add migrations/backups before launch.
+The live EC2 instance is a `t3.micro` with about 0.9 GiB RAM and Docker is not installed there. The complete monitoring stack is therefore intentionally not deployed on production. A separate monitoring host, client approval, secure metrics-token provisioning, Slack webhooks and private Node Exporter access remain prerequisites. No monitoring service ports are public.
 
-## Implemented routes
+Google Analytics 4 and Search Console are not currently configured. They should be added only with approved property IDs and privacy settings. Prometheus enquiry counts are aggregate operational metrics, not visitor analytics or confirmed bookings; persisted server-side records remain the source of truth for enquiries.
 
-- `/`, `/about/`, `/services/`, `/work/`, `/menu/`, `/reviews/`, `/contact/`, and `/privacy/`
-- `/admin/` for the owner enquiry dashboard; sign in using the configured `ADMIN_USERNAME` and `ADMIN_PASSWORD`.
-- `GET /api/health`
-- `GET /api/config`
-- `GET` and `POST /api/reviews`
-- `POST /api/enquiries`
-- Authenticated `GET /api/admin/reviews`
-- Authenticated `PATCH` and `DELETE /api/admin/reviews/:id`
-- Authenticated `GET /api/admin/enquiries`
+## Security and Operations
 
-Review and enquiry submissions use server-side validation, JSON persistence, a honeypot field, and an in-memory per-IP rate limit. The rate limit is intentionally documented as single-process protection; use an edge/WAF or shared store for a horizontally scaled deployment.
+- Public EC2 ingress is limited to HTTP and HTTPS; administration uses SSM rather than SSH.
+- EC2 requires IMDSv2 and uses an instance role for S3, SSM and Parameter Store access.
+- The deployment role is separate from the runtime role and trusts only this repository's `production` GitHub Environment. Configure that Environment to allow `main` only and require an authorized reviewer.
+- Terraform state contains sensitive values. The existing checkout uses local state; secure it and arrange encrypted, access-controlled state storage before future Terraform changes.
+- The application has a single-process in-memory rate limiter; horizontal scaling requires shared rate limiting. The current host is a single point of failure.
+- No production deployment or monitoring alert delivery has been claimed as tested. See the [observability runbook](monitoring/README.md) for rollout, validation and recovery requirements.
 
-## Client information still required
+## Client Content
 
-- Approved business story, values, team details, and service list.
-- Confirmed published menu names, descriptions, dietary/allergen information, prices, and availability where applicable.
-- Real email address, telephone number, WhatsApp number, and enquiry destination.
-- Facebook, Instagram, and TikTok URLs.
-- Production domain.
-- Approved privacy/retention wording and the review administrator/ownership process.
-- Hosting and database preference if the application will scale beyond a single server.
-
-No testimonials, ratings, addresses, opening hours, prices, social URLs, or business claims have been fabricated.
+Business story, approved service/menu details, contact channels, social links and final privacy/retention wording require client approval before they are added. No unverified testimonials, prices, addresses, ratings or business performance claims are included.

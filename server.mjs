@@ -3,6 +3,7 @@ import { promises as fs, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
+import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from "@prometheus-io/client";
 
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
@@ -48,7 +49,7 @@ function loadLocalEnv() {
     for (const line of contents.split(/\r?\n/)) {
       const match = line.match(/^\s*([A-Z][A-Z0-9_]*)\s*=\s*(.*)\s*$/);
       if (!match || process.env[match[1]]) continue;
-      const value = match[2].replace(/^(?:["'])(.*)\1$/, "$1");
+      const value = match[2].replace(/^(["'])(.*)\1$/, "$2");
       process.env[match[1]] = value;
     }
   } catch {
@@ -245,6 +246,153 @@ function safeEqual(left, right) {
   return crypto.timingSafeEqual(leftBuffer, rightBuffer);
 }
 
+function normalizedMethod(method) {
+  const allowed = new Set(["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"]);
+  return allowed.has(method) ? method : "OTHER";
+}
+
+function normalizedRoute(rawUrl) {
+  let pathname;
+  try {
+    pathname = new URL(rawUrl || "/", "http://localhost").pathname;
+  } catch {
+    return "unmatched";
+  }
+  if (pathname === "/metrics") return "metrics";
+  if (["/", "/about/", "/services/", "/work/", "/menu/", "/reviews/", "/contact/", "/privacy/", "/admin/"].includes(pathname)) return "page";
+  if (pathname === "/api/health") return "api_health";
+  if (pathname === "/api/config") return "api_config";
+  if (pathname === "/api/reviews") return "api_reviews";
+  if (pathname === "/api/enquiries") return "api_enquiries";
+  if (pathname === "/api/admin/reviews") return "api_admin_reviews";
+  if (pathname === "/api/admin/enquiries") return "api_admin_enquiries";
+  if (/^\/api\/admin\/reviews\/[^/]+$/.test(pathname)) return "api_admin_review_moderation";
+  if (/^\/api\/admin\/enquiries\/[^/]+$/.test(pathname)) return "api_admin_enquiry_moderation";
+  if (pathname.startsWith("/api/")) return "api_unknown";
+  if (pathname.startsWith("/assets/")) return "static_asset";
+  return "page";
+}
+
+function createApplicationMetrics({ applicationVersion, environment }) {
+  const registry = new Registry();
+  collectDefaultMetrics({ register: registry });
+  const httpRequests = new Counter({
+    name: "http_requests_total",
+    help: "Completed HTTP requests.",
+    labelNames: ["method", "route", "status_code", "environment"],
+    registers: [registry]
+  });
+  const httpRequestsFailed = new Counter({
+    name: "http_requests_failed_total",
+    help: "HTTP requests that completed with a server error.",
+    labelNames: ["method", "route", "status_code", "environment"],
+    registers: [registry]
+  });
+  const httpRequestDuration = new Histogram({
+    name: "http_request_duration_seconds",
+    help: "HTTP request duration in seconds.",
+    labelNames: ["method", "route", "environment"],
+    buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+    registers: [registry]
+  });
+  const enquiriesSubmitted = new Counter({
+    name: "enquiries_submitted_total",
+    help: "Enquiries successfully persisted by the application.",
+    labelNames: ["environment"],
+    registers: [registry]
+  });
+  const enquiriesFailed = new Counter({
+    name: "enquiries_failed_total",
+    help: "Enquiry requests that were not successfully persisted.",
+    labelNames: ["environment"],
+    registers: [registry]
+  });
+  const reviewsSubmitted = new Counter({
+    name: "reviews_submitted_total",
+    help: "Reviews successfully persisted by the application.",
+    labelNames: ["environment"],
+    registers: [registry]
+  });
+  const applicationInfo = new Gauge({
+    name: "application_info",
+    help: "Application release and environment information.",
+    labelNames: ["version", "environment"],
+    registers: [registry]
+  });
+  const deploymentSuccesses = new Counter({
+    name: "deployment_successes_total",
+    help: "Successful production deployments recorded by the host deployer.",
+    registers: [registry]
+  });
+  const deploymentFailures = new Counter({
+    name: "deployment_failures_total",
+    help: "Failed production deployments recorded by the host deployer.",
+    registers: [registry]
+  });
+  const deploymentRollbacks = new Counter({
+    name: "deployment_rollbacks_total",
+    help: "Successful release rollbacks recorded by the host deployer.",
+    registers: [registry]
+  });
+  const deploymentDuration = new Gauge({
+    name: "deployment_duration_seconds",
+    help: "Duration of the most recently completed deployment attempt.",
+    registers: [registry]
+  });
+  const deploymentLastSuccess = new Gauge({
+    name: "deployment_last_success_timestamp_seconds",
+    help: "Unix timestamp of the most recent successful release activation.",
+    registers: [registry]
+  });
+  const deploymentLastResult = new Gauge({
+    name: "deployment_last_result",
+    help: "Outcome of the most recent deployment attempt.",
+    labelNames: ["result"],
+    registers: [registry]
+  });
+  applicationInfo.set({ version: applicationVersion, environment }, 1);
+  const knownDeploymentTotals = { successes: 0, failures: 0, rollbacks: 0 };
+  return {
+    registry,
+    httpRequests,
+    httpRequestsFailed,
+    httpRequestDuration,
+    enquiriesSubmitted,
+    enquiriesFailed,
+    reviewsSubmitted,
+    knownDeploymentTotals,
+    deploymentSuccesses,
+    deploymentFailures,
+    deploymentRollbacks,
+    deploymentDuration,
+    deploymentLastSuccess,
+    deploymentLastResult
+  };
+}
+
+async function refreshDeploymentMetrics(metrics, statePath) {
+  try {
+    const state = JSON.parse(await fs.readFile(statePath, "utf8"));
+    for (const [key, counter, field] of [
+      ["successes", metrics.deploymentSuccesses, "successes"],
+      ["failures", metrics.deploymentFailures, "failures"],
+      ["rollbacks", metrics.deploymentRollbacks, "rollbacks"]
+    ]) {
+      const total = Number.isSafeInteger(state[field]) && state[field] >= 0 ? state[field] : 0;
+      if (total > metrics.knownDeploymentTotals[key]) counter.inc(total - metrics.knownDeploymentTotals[key]);
+      metrics.knownDeploymentTotals[key] = Math.max(metrics.knownDeploymentTotals[key], total);
+    }
+    metrics.deploymentDuration.set(Number.isFinite(state.last_duration_seconds) ? state.last_duration_seconds : 0);
+    metrics.deploymentLastSuccess.set(Number.isFinite(state.last_success_timestamp_seconds) ? state.last_success_timestamp_seconds : 0);
+    const result = ["success", "failure", "rollback", "unknown"].includes(state.last_result) ? state.last_result : "unknown";
+    metrics.deploymentLastResult.reset();
+    metrics.deploymentLastResult.set({ result }, 1);
+  } catch {
+    metrics.deploymentLastResult.reset();
+    metrics.deploymentLastResult.set({ result: "unknown" }, 1);
+  }
+}
+
 function authorizeAdmin(req, config) {
   const credentials = basicAuthCredentials(req);
   const valid = Boolean(
@@ -330,6 +478,11 @@ function resolveInside(baseDir, relativePath) {
 export function createServer(options = {}) {
   const env = options.env || process.env;
   const dataDir = options.dataDir || env.DATA_DIR || DEFAULT_DATA_DIR;
+  const applicationVersion = options.appVersion || env.APP_VERSION || "development";
+  const environment = ["production", "test", "development"].includes(env.NODE_ENV) ? env.NODE_ENV : "other";
+  const metricsToken = options.metricsToken ?? env.METRICS_TOKEN ?? "";
+  const deploymentStatePath = options.deploymentStatePath || env.DEPLOYMENT_STATE_FILE || path.join(dataDir, "deployment-state.json");
+  const metrics = createApplicationMetrics({ applicationVersion, environment });
   const config = {
     adminUsername: options.adminUsername ?? env.ADMIN_USERNAME ?? "",
     adminPassword: options.adminPassword ?? env.ADMIN_PASSWORD ?? ""
@@ -346,13 +499,35 @@ export function createServer(options = {}) {
 
   const server = createHttpServer(async (req, res) => {
     for (const [header, value] of Object.entries(securityHeaders())) res.setHeader(header, value);
+    const method = req.method || "GET";
+    const route = normalizedRoute(req.url);
+    const metricMethod = normalizedMethod(method);
+    const requestStarted = process.hrtime.bigint();
+    if (route !== "metrics") {
+      res.once?.("finish", () => {
+        const statusCode = String(res.statusCode || 200);
+        const labels = { method: metricMethod, route, status_code: statusCode, environment };
+        metrics.httpRequests.inc(labels);
+        if (Number(statusCode) >= 500) metrics.httpRequestsFailed.inc(labels);
+        metrics.httpRequestDuration.observe({ method: metricMethod, route, environment }, Number(process.hrtime.bigint() - requestStarted) / 1e9);
+        if (route === "api_enquiries" && statusCode !== "201") metrics.enquiriesFailed.inc({ environment });
+      });
+    }
     try {
+      if (route === "metrics") {
+        const authorization = req.headers.authorization || "";
+        const suppliedToken = authorization.match(/^Bearer\s+(.+)$/i)?.[1] || "";
+        if (method !== "GET") return jsonResponse(res, 405, { error: "Method not allowed." }, { Allow: "GET" });
+        if (!metricsToken || !safeEqual(suppliedToken, metricsToken)) return jsonResponse(res, 404, { error: "Not found." });
+        await refreshDeploymentMetrics(metrics, deploymentStatePath);
+        res.writeHead(200, { "Content-Type": metrics.registry.contentType, "Cache-Control": "no-store" });
+        return res.end(await metrics.registry.metrics());
+      }
       await ready;
       const url = new URL(req.url || "/", "http://localhost");
-      const method = req.method || "GET";
 
       if (url.pathname === "/api/health" && method === "GET") {
-        return jsonResponse(res, 200, { status: "ok", persistence: persistence.kind });
+        return jsonResponse(res, 200, { status: "ok", persistence: persistence.kind, version: applicationVersion });
       }
 
       if (url.pathname === "/api/config" && method === "GET") {
@@ -381,9 +556,11 @@ export function createServer(options = {}) {
           submittedAt: new Date().toISOString()
         };
         await persistence.createReview(review);
+        metrics.reviewsSubmitted.inc({ environment });
         return jsonResponse(res, 201, { status: "pending", message: "Thank you. Your review was received and is awaiting moderation." });
       }
 
+      metrics.enquiriesSubmitted.inc({ environment });
       if (url.pathname === "/api/enquiries" && method === "POST") {
         if (!enquiryRateLimit(clientAddress(req))) return jsonResponse(res, 429, { error: "Too many submissions. Please try again later." });
         const input = await readRequestBody(req);

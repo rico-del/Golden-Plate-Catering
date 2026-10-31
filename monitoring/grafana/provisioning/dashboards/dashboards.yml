@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: Golden Plate
+    orgId: 1
+    folder: Golden Plate
+    type: file
+    disableDeletion: true
+    editable: false
+    options:
+      path: /var/lib/grafana/dashboards

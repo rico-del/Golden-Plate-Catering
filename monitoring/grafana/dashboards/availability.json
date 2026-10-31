@@ -1,0 +1,15 @@
+{
+  "annotations": { "list": [] },
+  "editable": false,
+  "panels": [
+    { "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "unit": "short", "min": 0, "max": 1 }, "overrides": [] }, "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 }, "id": 1, "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }, "targets": [{ "expr": "probe_success{job=\"production-http\"}", "refId": "A" }], "title": "Production endpoint probe success", "type": "timeseries" },
+    { "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }, "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }, "id": 2, "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }, "targets": [{ "expr": "probe_duration_seconds{job=\"production-http\"}", "refId": "A" }], "title": "HTTP response duration", "type": "timeseries" },
+    { "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }, "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }, "id": 3, "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }, "targets": [{ "expr": "probe_http_status_code{job=\"production-http\"}", "refId": "A" }], "title": "HTTP status code", "type": "timeseries" },
+    { "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "unit": "d" }, "overrides": [] }, "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 }, "id": 4, "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }, "targets": [{ "expr": "(probe_ssl_earliest_cert_expiry{job=\"production-http\"} - time()) / 86400", "refId": "A" }], "title": "TLS certificate validity remaining", "type": "timeseries" },
+    { "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }, "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 }, "id": 5, "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }, "targets": [{ "expr": "probe_dns_lookup_time_seconds{job=\"production-http\"}", "refId": "A" }], "title": "DNS lookup duration", "type": "timeseries" }
+  ],
+  "schemaVersion": 39,
+  "title": "Availability and Uptime",
+  "uid": "golden-plate-availability",
+  "version": 1
+}

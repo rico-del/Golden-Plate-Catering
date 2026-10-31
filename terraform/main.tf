@@ -27,6 +27,10 @@ provider "aws" {
 
 provider "mongodbatlas" {}
 
+locals {
+  deployment_archive_path = var.deployment_archive_path == null ? "${path.module}/../dist/golden-plate-deploy.tar.gz" : abspath(var.deployment_archive_path)
+}
+
 resource "aws_eip" "site" {
   domain = "vpc"
   tags = {
@@ -171,8 +175,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "deployments" {
 resource "aws_s3_object" "application" {
   bucket      = aws_s3_bucket.deployments.id
   key         = "releases/golden-plate-deploy.tar.gz"
-  source      = "${path.module}/../dist/golden-plate-deploy.tar.gz"
-  source_hash = filemd5("${path.module}/../dist/golden-plate-deploy.tar.gz")
+  source      = local.deployment_archive_path
+  source_hash = filemd5(local.deployment_archive_path)
 }
 
 resource "mongodbatlas_project" "site" {

@@ -1,0 +1,10 @@
+{
+  "name": "golden-plate-serverless-functions",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.922.0",
+    "@aws-sdk/client-sns": "^3.922.0",
+    "@aws-sdk/lib-dynamodb": "^3.922.0"
+  }
+}

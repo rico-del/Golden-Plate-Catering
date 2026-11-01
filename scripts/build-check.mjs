@@ -8,7 +8,8 @@ const requiredFiles = [
   "public/styles.css",
   "public/app.js",
   "public/site-config.js",
-  "server.mjs"
+  "server.mjs",
+  "lambda/src/handlers.mjs"
 ];
 const requiredAssets = [
   "background_video.mp4",

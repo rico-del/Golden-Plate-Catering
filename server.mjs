@@ -560,7 +560,6 @@ export function createServer(options = {}) {
         return jsonResponse(res, 201, { status: "pending", message: "Thank you. Your review was received and is awaiting moderation." });
       }
 
-      metrics.enquiriesSubmitted.inc({ environment });
       if (url.pathname === "/api/enquiries" && method === "POST") {
         if (!enquiryRateLimit(clientAddress(req))) return jsonResponse(res, 429, { error: "Too many submissions. Please try again later." });
         const input = await readRequestBody(req);
@@ -569,6 +568,7 @@ export function createServer(options = {}) {
         if (Object.keys(errors).length) return jsonResponse(res, 422, { errors });
         const enquiry = { id: crypto.randomUUID(), ...value, status: "new", submittedAt: new Date().toISOString() };
         await persistence.createEnquiry(enquiry);
+        metrics.enquiriesSubmitted.inc({ environment });
         return jsonResponse(res, 201, { status: "new", message: "Your enquiry was saved. This is not a booking confirmation." });
       }
 

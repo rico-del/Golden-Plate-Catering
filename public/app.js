@@ -22,7 +22,8 @@ const routes = {
   "/reviews/": renderReviews,
   "/contact/": renderContact,
   "/privacy/": renderPrivacy,
-  "/admin/": renderAdmin
+  "/admin/": renderAdmin,
+  "/admin/callback/": renderAdminCallback
 };
 
 function escapeHtml(value) {
@@ -187,7 +188,14 @@ function statusBadge(status) {
 }
 
 function renderAdminLogin() {
+  if (publicConfig.auth?.enabled) {
+    return `<section class="section section-white"><div class="container admin-login-shell"><div class="admin-panel"><div class="content-kicker">Owner dashboard</div><h1>Monitor catering enquiries</h1><p>Sign in securely to review new requests and update their status.</p><form data-admin-login><button class="button" type="submit">Continue to secure sign-in</button></form></div></div></section>`;
+  }
   return `<section class="section section-white"><div class="container admin-login-shell"><div class="admin-panel"><div class="content-kicker">Owner dashboard</div><h1>Monitor catering enquiries</h1><p>Sign in with the configured admin credentials to review new requests and update their status.</p><form data-admin-login><div class="field"><label for="admin-username">Username</label><input id="admin-username" name="username" type="text" autocomplete="username"></div><div class="field"><label for="admin-password">Password</label><input id="admin-password" name="password" type="password" autocomplete="current-password"></div><button class="button" type="submit">Open dashboard</button></form></div></div></section>`;
+}
+
+function renderAdminCallback() {
+  return `<section class="section section-white"><div class="container admin-login-shell"><div class="admin-panel"><div class="content-kicker">Owner dashboard</div><h1>Completing secure sign-in</h1><p data-auth-status>Verifying your sign-in response…</p></div></div></section>`;
 }
 
 function formatEnquiryDate(value) {
@@ -240,9 +248,7 @@ function renderAdminEnquiries(enquiries) {
 
 async function fetchAdminEnquiries() {
   if (!adminSession) return;
-  const response = await fetch("/api/admin/enquiries", {
-    headers: { Authorization: `Basic ${btoa(`${adminSession.username}:${adminSession.password}`)}` }
-  });
+  const response = await adminFetch("/api/admin/enquiries");
   if (response.status === 401) {
     adminSession = null;
     sessionStorage.removeItem("goldenPlateAdmin");
@@ -284,9 +290,7 @@ function renderAdminReviews(reviews) {
 
 async function fetchAdminReviews() {
   if (!adminSession) return;
-  const response = await fetch("/api/admin/reviews", {
-    headers: { Authorization: `Basic ${btoa(`${adminSession.username}:${adminSession.password}`)}` }
-  });
+  const response = await adminFetch("/api/admin/reviews");
   if (response.status === 401) {
     adminSession = null;
     sessionStorage.removeItem("goldenPlateAdmin");
@@ -302,11 +306,10 @@ async function fetchAdminReviews() {
 
 async function moderateReview(id, status) {
   if (!adminSession) return;
-  const response = await fetch(`/api/admin/reviews/${encodeURIComponent(id)}`, {
+  const response = await adminFetch(`/api/admin/reviews/${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Basic ${btoa(`${adminSession.username}:${adminSession.password}`)}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify({ status })
   });
@@ -320,9 +323,9 @@ async function moderateReview(id, status) {
 
 async function deleteReview(id) {
   if (!adminSession) return;
-  const response = await fetch(`/api/admin/reviews/${encodeURIComponent(id)}`, {
+  const response = await adminFetch(`/api/admin/reviews/${encodeURIComponent(id)}`, {
     method: "DELETE",
-    headers: { Authorization: `Basic ${btoa(`${adminSession.username}:${adminSession.password}`)}` }
+    headers: {}
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
@@ -334,11 +337,10 @@ async function deleteReview(id) {
 
 async function updateEnquiryStatus(id, status) {
   if (!adminSession) return;
-  const response = await fetch(`/api/admin/enquiries/${id}`, {
+  const response = await adminFetch(`/api/admin/enquiries/${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Basic ${btoa(`${adminSession.username}:${adminSession.password}`)}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify({ status })
   });
@@ -356,15 +358,146 @@ function renderAdmin() {
 }
 
 function setAdminSession(username, password) {
-  adminSession = { username, password };
-  sessionStorage.setItem("goldenPlateAdmin", JSON.stringify({ username, password }));
+  adminSession = { type: "legacy", username, password };
+  sessionStorage.setItem("goldenPlateAdmin", JSON.stringify(adminSession));
+}
+
+function setCognitoSession(tokens) {
+  adminSession = {
+    type: "cognito",
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token || adminSession?.refreshToken || "",
+    expiresAt: Date.now() + Number(tokens.expires_in || 300) * 1000
+  };
+}
+
+function randomBase64Url(byteCount = 32) {
+  const bytes = crypto.getRandomValues(new Uint8Array(byteCount));
+  let binary = "";
+  bytes.forEach((value) => { binary += String.fromCharCode(value); });
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
+async function beginCognitoSignIn() {
+  const auth = publicConfig.auth;
+  if (!auth?.enabled || !auth.domain || !auth.clientId || !auth.redirectUri) throw new Error("Secure sign-in is not configured.");
+  const verifier = randomBase64Url(48);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  let challengeBinary = "";
+  new Uint8Array(digest).forEach((value) => { challengeBinary += String.fromCharCode(value); });
+  const challenge = btoa(challengeBinary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  const state = randomBase64Url();
+  sessionStorage.setItem("goldenPlatePkce", JSON.stringify({ verifier, state }));
+  const authorize = new URL("/oauth2/authorize", auth.domain);
+  authorize.search = new URLSearchParams({
+    client_id: auth.clientId,
+    response_type: "code",
+    scope: "openid email",
+    redirect_uri: auth.redirectUri,
+    code_challenge_method: "S256",
+    code_challenge: challenge,
+    state
+  }).toString();
+  window.location.assign(authorize.href);
+}
+
+async function completeCognitoSignIn() {
+  const status = document.querySelector("[data-auth-status]");
+  const auth = publicConfig.auth;
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get("code");
+  const returnedState = params.get("state");
+  let saved;
+  try {
+    saved = JSON.parse(sessionStorage.getItem("goldenPlatePkce") || "null");
+  } catch {
+    saved = null;
+  }
+  sessionStorage.removeItem("goldenPlatePkce");
+  if (!auth?.enabled || !code || !saved?.verifier || !returnedState || returnedState !== saved.state) {
+    const message = params.get("error_description") || "The sign-in response could not be verified. Please try again.";
+    if (status) status.textContent = message;
+    history.replaceState({}, "", "/admin/");
+    renderRoute("/admin/");
+    showToast(message);
+    return;
+  }
+  try {
+    const response = await fetch(new URL("/oauth2/token", auth.domain), {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        client_id: auth.clientId,
+        code,
+        redirect_uri: auth.redirectUri,
+        code_verifier: saved.verifier
+      })
+    });
+    if (!response.ok) throw new Error("Secure sign-in could not be completed.");
+    setCognitoSession(await response.json());
+    history.replaceState({}, "", "/admin/");
+    renderRoute("/admin/");
+    showToast("Secure sign-in complete.");
+  } catch (error) {
+    history.replaceState({}, "", "/admin/");
+    renderRoute("/admin/");
+    showToast(error.message || "Secure sign-in could not be completed.");
+  }
+}
+
+async function cognitoAccessToken() {
+  if (!adminSession || adminSession.type !== "cognito") return null;
+  if (adminSession.accessToken && adminSession.expiresAt > Date.now() + 30_000) return adminSession.accessToken;
+  if (!adminSession.refreshToken || !publicConfig.auth?.enabled) return null;
+  const response = await fetch(new URL("/oauth2/token", publicConfig.auth.domain), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "refresh_token", client_id: publicConfig.auth.clientId, refresh_token: adminSession.refreshToken })
+  });
+  if (!response.ok) return null;
+  const tokens = await response.json();
+  setCognitoSession(tokens);
+  return adminSession.accessToken;
+}
+
+async function adminFetch(url, options = {}) {
+  if (adminSession?.type === "cognito") {
+    const token = await cognitoAccessToken();
+    if (!token) {
+      clearAdminSession();
+      throw new Error("Your secure session expired. Please sign in again.");
+    }
+    return fetch(url, { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` } });
+  }
+  if (adminSession?.type === "legacy") {
+    return fetch(url, { ...options, headers: { ...(options.headers || {}), Authorization: `Basic ${btoa(`${adminSession.username}:${adminSession.password}`)}` } });
+  }
+  throw new Error("Please sign in again.");
+}
+
+function clearAdminSession() {
+  adminSession = null;
+  sessionStorage.removeItem("goldenPlateAdmin");
+}
+
+function signOutAdmin() {
+  const auth = publicConfig.auth;
+  clearAdminSession();
+  if (auth?.enabled && auth.domain && auth.clientId && auth.logoutUri) {
+    const logoutUrl = new URL("/logout", auth.domain);
+    logoutUrl.search = new URLSearchParams({ client_id: auth.clientId, logout_uri: auth.logoutUri }).toString();
+    window.location.assign(logoutUrl.href);
+    return;
+  }
+  renderRoute("/admin/");
 }
 
 function restoreAdminSession() {
   try {
     const saved = JSON.parse(sessionStorage.getItem("goldenPlateAdmin") || "null");
-    if (saved && saved.username && saved.password) {
-      adminSession = { username: saved.username, password: saved.password };
+    if (saved && saved.type === "legacy" && saved.username && saved.password) {
+      adminSession = { type: "legacy", username: saved.username, password: saved.password };
     }
   } catch {
     // Ignore storage issues and fall back to the sign-in screen.
@@ -372,7 +505,7 @@ function restoreAdminSession() {
 }
 
 function setDocumentMeta(path) {
-  const titles = { "/": "Golden Plate Catering", "/about/": "About · Golden Plate Catering", "/services/": "Services · Golden Plate Catering", "/work/": "Our Work · Golden Plate Catering", "/menu/": "Menu · Golden Plate Catering", "/reviews/": "Reviews · Golden Plate Catering", "/contact/": "Get a quote · Golden Plate Catering", "/privacy/": "Privacy · Golden Plate Catering", "/admin/": "Admin · Golden Plate Catering" };
+  const titles = { "/": "Golden Plate Catering", "/about/": "About · Golden Plate Catering", "/services/": "Services · Golden Plate Catering", "/work/": "Our Work · Golden Plate Catering", "/menu/": "Menu · Golden Plate Catering", "/reviews/": "Reviews · Golden Plate Catering", "/contact/": "Get a quote · Golden Plate Catering", "/privacy/": "Privacy · Golden Plate Catering", "/admin/": "Admin · Golden Plate Catering", "/admin/callback/": "Secure sign-in · Golden Plate Catering" };
   document.title = titles[path] || titles["/"];
   const description = document.querySelector('meta[name="description"]');
   description?.setAttribute("content", path === "/" ? "Golden Plate Catering — thoughtful food, welcoming tables, and care for every gathering." : `${document.title}. Golden Plate, Karibu Dala.`);
@@ -548,6 +681,14 @@ function setupForms() {
   enquiryForm?.addEventListener("submit", (event) => { event.preventDefault(); handleFormSubmit(event.currentTarget, "enquiry"); });
   document.querySelector("[data-admin-login]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (publicConfig.auth?.enabled) {
+      try {
+        await beginCognitoSignIn();
+      } catch (error) {
+        showToast(error.message || "Secure sign-in is unavailable.");
+      }
+      return;
+    }
     const form = event.currentTarget;
     const username = form.elements.username.value.trim();
     const password = form.elements.password.value;
@@ -560,9 +701,7 @@ function setupForms() {
     showToast("Admin dashboard ready.");
   });
   document.querySelector("[data-admin-logout]")?.addEventListener("click", () => {
-    adminSession = null;
-    sessionStorage.removeItem("goldenPlateAdmin");
-    renderRoute("/admin/");
+    signOutAdmin();
   });
   document.addEventListener("change", async (event) => {
     const select = event.target.closest("[data-enquiry-status]");
@@ -671,13 +810,21 @@ function renderRoute(path) {
 async function loadPublicConfig() {
   try {
     const response = await fetch("/api/config");
-    if (response.ok) publicConfig = await response.json();
+    if (response.ok) publicConfig = { ...await response.json(), auth: window.GOLDEN_PLATE_AUTH_CONFIG || null };
   } catch {
-    publicConfig = { contact: siteConfig.contact || {}, socials: siteConfig.socials || {}, siteUrl: "" };
+    publicConfig = { contact: siteConfig.contact || {}, socials: siteConfig.socials || {}, siteUrl: "", auth: window.GOLDEN_PLATE_AUTH_CONFIG || null };
   }
 }
 
 restoreAdminSession();
 document.querySelector("[data-year]").textContent = new Date().getFullYear();
 bindGlobalEvents();
-loadPublicConfig().finally(() => renderRoute(routePath()));
+loadPublicConfig().finally(async () => {
+  const path = routePath();
+  if (path === "/admin/callback/") {
+    renderRoute(path);
+    await completeCognitoSignIn();
+    return;
+  }
+  renderRoute(path);
+});

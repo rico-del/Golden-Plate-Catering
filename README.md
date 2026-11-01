@@ -2,60 +2,119 @@
 
 **Production status: live.** [Visit Golden Plate Catering](https://goldenplatecatering.duckdns.org/)
 
-## Project Overview
+## Intro
 
-Golden Plate Catering is a real catering business. This repository contains its commissioned public website, built and deployed by me as the engineering owner for the client engagement. The website gives the business a digital place to present its catering work and services and makes it easier for prospective customers to send enquiries.
+This project is my first real client project, and it gave me the opportunity to design, build, deploy, and operate a production-aware web application end-to-end. I wanted to show not just frontend work, but also the DevOps thinking behind it: GitHub automation, Infrastructure as Code, secure AWS configuration, deployment safety, and cost-conscious architecture decisions.
 
-The project is intended to strengthen the business's online presence and discoverability. Those are objectives, not measured outcomes: no traffic, ranking, conversion or revenue claims are made here.
+The site itself is a real catering business website for a local brand. The engineering value came from combining a polished product with strong operational practices: CI validation, immutable release packaging, controlled AWS access, local health checks, and a measured approach to cost.
 
-## Website Capabilities
+I also want to be transparent that the Terraform foundation was not built entirely from scratch: I reused patterns and infrastructure ideas from my earlier Munch_Catering work as a template, then adapted them to this client project, the environment, and the current requirements. That reuse was part of my learning process, and it helped me move quickly while still applying the architecture to a different business context.
 
-- Responsive public pages for the business, services, work, menu, reviews, contact and privacy information.
-- Supplied event imagery and video, with accessible descriptions.
-- Server-validated catering enquiries, persisted server-side and presented in an authenticated owner dashboard.
-- Customer reviews submitted for moderation; only approved reviews appear publicly.
-- Rate limiting, honeypot checks, security headers and a health endpoint.
-- Public business contact and social details remain blank until approved by the client.
+I used this project as a practical learning ground for my DevOps journey. It is a blend of product delivery, infrastructure design, and operational discipline, which is exactly the type of work I want to keep building on in my career.
 
-## Technology
+### DevOps stack in focus
 
-- Node.js HTTP server (Node.js 20+; CI uses Node.js 22), ES modules and a static HTML/CSS/JavaScript frontend.
-- MongoDB Node.js driver. Production persistence is MongoDB Atlas; local development can use ignored JSON files when `MONGODB_URI` is unset.
-- AWS EC2 running Ubuntu, Nginx, systemd and SSM Agent. Nginx terminates HTTPS and proxies to the host-managed Node process.
-- Terraform manages the AWS deployment resources and MongoDB Atlas configuration.
-- GitHub Actions provides CI, a GHCR container build, and a separate tarball-based production deployment workflow.
+- Node.js for the application runtime and API logic
+- Terraform for AWS and Atlas configuration
+- GitHub Actions for CI, validation, and deployment automation
+- AWS SSM, EC2, S3, CloudFront, Lambda, DynamoDB, Cognito, SNS and CloudWatch
+- Prometheus, Grafana, Alertmanager and Blackbox for observability
+- Secure release + rollback patterns with immutable artifacts and staged activation
 
-## Production Architecture
+## Why I explored a different architecture
 
-The live application is not running in Docker. The existing production path bootstrapped a tarball from a private S3 bucket onto EC2; the service is managed by `golden-plate.service`, and runtime credentials are retrieved from SSM Parameter Store using the EC2 instance role. The production `/api/health` endpoint and public HTTPS site were checked during this implementation.
+One of the key reasons I explored the serverless path was cost efficiency. I wanted to understand whether a CloudFront + S3 + API Gateway + Lambda + DynamoDB model could offer a leaner operating model for a small website while still keeping the product secure and easy to maintain.
+
+This was a design and learning exercise, not a claim that the account already had a confirmed AWS billing advantage. I did not have account-level billing proof available in this environment, so I did not treat the cost reduction as a fact. I treated it as an engineering evaluation: compare the current EC2 + MongoDB Atlas architecture with a serverless option, identify trade-offs, and decide whether the lower-cost path was worth the migration effort before spending money.
+
+That is why the architecture work is framed as a cost-conscious exploration rather than a production migration claim. The live stack remains the verified production baseline until a reviewed bill analysis, a signed-off migration plan, and a fresh Terraform apply are completed.
+
+## Project overview
+
+The site presents the business clearly, lets customers submit enquiries, and separates public content from private moderation flows. The project includes:
+
+- public pages for services, work, menu, reviews, contact and privacy
+- image and video assets with accessibility-friendly content
+- server-side validation for enquiry and review submissions
+- moderated review approval before publication
+- secure owner-only admin access for enquiry and review management
+- operational metrics and health checks for production reliability
+
+## Architecture diagram
 
 ```mermaid
 flowchart LR
-	Developer --> Repo[GitHub repository]
-	Repo --> CI[GitHub Actions CI]
-	CI --> GHCR[GHCR image build]
-	Bootstrap[S3 bootstrap tarball] --> EC2[Ubuntu EC2]
-	EC2 --> Node[Node.js systemd service]
-	Node --> Mongo[(MongoDB Atlas)]
-	Visitor --> Nginx[Nginx HTTPS]
-	Nginx --> Node
-	Node --> Health[GET /api/health]
-	Repo -. configured; AWS setup required .-> CD[Production deployment workflow]
-	CD -. GitHub OIDC .-> IAM[Dedicated deployment role]
-	CD -. immutable SHA tarball .-> S3[S3 release prefix]
-	CD -. SSM Run Command .-> EC2
-	CD -. public health and version check .-> Health
+    User[Visitor / Client / Admin] --> CDN[CloudFront Edge]
+    CDN --> S3[Private S3 Website Bucket]
+    CDN --> API[API Gateway HTTP API]
+
+    API --> R1[Lambda: reviews-read]
+    API --> R2[Lambda: review-submit]
+    API --> R3[Lambda: enquiry-submit]
+    API --> R4[Lambda: admin]
+
+    R1 --> DDB[(DynamoDB)]
+    R2 --> DDB
+    R3 --> DDB
+    R4 --> DDB
+    R3 --> SNS[SNS Email Topic]
+
+    R4 --> Cognito[Cognito User Pool + JWT Authorizer]
+    User --> Cognito
+
+    GH[GitHub Actions] --> TF[Terraform]
+    TF --> AWS[AWS Infrastructure]
+    GH --> OIDC[OIDC Deployment Role]
+    OIDC --> S3
+    OIDC --> API
+    OIDC --> Cloudfront[CloudFront Invalidation]
+
+    subgraph " Cost-focused architecture exploration "
+        CDN
+        S3
+        API
+        DDB
+        Cognito
+    end
 ```
 
-The new deployment workflow does not change the live host until its prerequisites are configured and it is run. It packages immutable commit-SHA tarballs, uploads them under a dedicated S3 prefix, invokes a host-side staged release, restarts systemd, checks local and public health/version, and restores the previous release on a failed check. The switch includes a brief systemd restart; zero downtime is not claimed. A manual dispatch can redeploy an existing SHA for rollback.
+This diagram shows the serverless direction I explored for a cost-aware production model. The goal was to reduce infrastructure overhead while keeping a clean edge layer, a protected admin path, and a low-maintenance deployment model.
 
-### CI and Deployment
+## Live production architecture
 
-`.github/workflows/ci.yml` runs checks, build and tests on pull requests and pushes to `main`, and builds/publishes the existing GHCR image. `.github/workflows/deploy.yml` separately verifies and deploys only from `main` through GitHub OIDC, S3 and SSM. Production deployments are serialized and are never triggered by pull requests.
+The current live site is hosted in a more traditional path: an Ubuntu EC2 instance, a Node.js process managed by systemd, MongoDB Atlas for persistence, Nginx for TLS termination, and AWS access managed through SSM and IAM roles. That remains the verified production foundation I used for the site.
 
-The deployment workflow is implemented but not yet operational: the Terraform role has not been applied, the GitHub production Environment and variables are not configured, and no deployment has been run against the live host. See [Terraform deployment setup](terraform/README.md) for the exact activation steps.
+```mermaid
+flowchart LR
+    Visitor[Website visitor] --> Nginx[Nginx on EC2]
+    Nginx --> Node[Node.js app]
+    Node --> Atlas[(MongoDB Atlas)]
+    Node --> Health[GET /api/health]
 
-## Local Development
+    GH[GitHub Actions] --> Deploy[Production deployment workflow]
+    Deploy --> OIDC[GitHub OIDC role]
+    OIDC --> S3Bucket[S3 release bucket]
+    OIDC --> SSM[SSM Run Command]
+    SSM --> EC2[Ubuntu EC2 host]
+    EC2 --> Rollback[Release rollback logic]
+```
+
+This is the baseline architecture I validated first. It is stable, operationally familiar, and appropriate for a real client project while I continued evaluating the lower-cost serverless alternative.
+
+## CI/CD and delivery
+
+I built the project with a practical DevOps mindset:
+
+- GitHub Actions validates every PR and push
+- Node checks, build validation and tests are automated
+- Terraform is used for AWS and data-layer configuration
+- release artifacts are immutable and SHA-based
+- deployment is separated from runtime operations
+- rollback logic is prepared for the release path
+
+The project also includes the deployment hardening I wrote for safer production operations: host-side activation, version verification, SSM-run release logic, release state tracking, and safe rollback triggers.
+
+## Local development
 
 Requirements: Node.js 22 recommended and npm.
 
@@ -67,49 +126,18 @@ npm test
 npm start
 ```
 
-Open `http://127.0.0.1:3000`. `npm run dev` starts the Node watch mode.
+Open `http://127.0.0.1:3000`.
 
-Copy `.env.example` to `.env` for local configuration. `MONGODB_URI` must start with `mongodb://` or `mongodb+srv://`; leave it empty to use local JSON persistence. The server reads `.env` without overriding shell-provided values. Do not use production credentials or data for local testing. The `.env` parser accepts matching single or double quotes around values.
+## Security and operations notes
 
-### Docker
+- production credentials are never committed to the repository
+- runtime secrets are handled through AWS-managed secret and parameter patterns
+- the app includes security headers, request validation, rate limiting and admin-only moderation flows
+- metrics and monitoring are designed for operational visibility without exposing raw customer data
+- no live deployment or unattended production migration is claimed without an approved change and a reviewed plan
 
-Docker remains useful for local container testing and the existing GHCR image workflow; it is not the production deployment runtime.
+## Closing note
 
-```sh
-docker build -t golden-plate-catering .
-docker volume create golden-plate-data
-docker run --rm -p 3000:3000 \
-	-v golden-plate-data:/data \
-	-e ADMIN_USERNAME='local-moderator' \
-	-e ADMIN_PASSWORD='use-a-long-random-password' \
-	golden-plate-catering
-```
+This repository reflects the kind of work I want to keep growing in: product engineering, cloud architecture, automation, and operational discipline. It is my first real client project, and it taught me how to move from a working website to something that is easier to trust, safer to deploy, and more professional to operate.
 
-The container runs as the unprivileged `node` user and has a health check. Persist `/data` when using local JSON persistence; supply production secrets only through a secret manager.
-
-## Configuration and Data
-
-Public-facing contact, social, story and service values are maintained in `public/site-config.js` and must be approved by the client before publication. Server settings are documented in `.env.example`. The production host loads MongoDB and moderation credentials from SSM Parameter Store; no such values belong in this repository or GitHub variables.
-
-Production enquiry and review records are stored in MongoDB Atlas. Deployment archives exclude `.env`, JSON data, Terraform files/state, local dependencies and generated output. The release installer keeps application releases under `/opt/golden-plate/releases` and configures the JSON fallback directory at `/var/lib/golden-plate/data`, outside the release tree; the current live application uses Atlas. Local JSON files are ignored by Git. Back up MongoDB and protect Terraform state independently.
-
-## Observability
-
-The application now has an authenticated `/metrics` endpoint with bounded route/method/status/environment labels, request latency and aggregate enquiry/review/deployment counters. Metrics are disabled unless `METRICS_TOKEN` is configured. The Prometheus/Grafana/Alertmanager/Node Exporter/Blackbox configuration and five provisioned dashboards are in [`monitoring/`](monitoring/README.md).
-
-The live EC2 instance is a `t3.micro` with about 0.9 GiB RAM and Docker is not installed there. The complete monitoring stack is therefore intentionally not deployed on production. A separate monitoring host, client approval, secure metrics-token provisioning, Slack webhooks and private Node Exporter access remain prerequisites. No monitoring service ports are public.
-
-Google Analytics 4 and Search Console are not currently configured. They should be added only with approved property IDs and privacy settings. Prometheus enquiry counts are aggregate operational metrics, not visitor analytics or confirmed bookings; persisted server-side records remain the source of truth for enquiries.
-
-## Security and Operations
-
-- Public EC2 ingress is limited to HTTP and HTTPS; administration uses SSM rather than SSH.
-- EC2 requires IMDSv2 and uses an instance role for S3, SSM and Parameter Store access.
-- The deployment role is separate from the runtime role and trusts only this repository's `production` GitHub Environment. Configure that Environment to allow `main` only and require an authorized reviewer.
-- Terraform state contains sensitive values. The existing checkout uses local state; secure it and arrange encrypted, access-controlled state storage before future Terraform changes.
-- The application has a single-process in-memory rate limiter; horizontal scaling requires shared rate limiting. The current host is a single point of failure.
-- No production deployment or monitoring alert delivery has been claimed as tested. See the [observability runbook](monitoring/README.md) for rollout, validation and recovery requirements.
-
-## Client Content
-
-Business story, approved service/menu details, contact channels, social links and final privacy/retention wording require client approval before they are added. No unverified testimonials, prices, addresses, ratings or business performance claims are included.
+If you are looking for a developer who can think beyond the UI and understand the platform behind the product, this project is a strong example of that mindset.

@@ -177,3 +177,18 @@ test("metrics require a bearer token and expose aggregate persisted activity", a
     assert.equal((result.response.body.match(/deployment_successes_total 2/g) || []).length, 1);
   }, { env: { NODE_ENV: "test" }, metricsToken: "test-metrics-token", appVersion: "test-release" });
 });
+
+test("unmatched API routes return JSON 404 instead of the SPA fallback", async () => {
+  await withServer(async (handler) => {
+    let result = await request(handler, "/api/metrics");
+    assert.equal(result.response.statusCode, 404);
+    assert.deepEqual(result.body, { error: "Not found." });
+    result = await request(handler, "/api/nonexistent");
+    assert.equal(result.response.statusCode, 404);
+    result = await request(handler, "/api/metrics", { method: "POST", body: "{}" });
+    assert.equal(result.response.statusCode, 404);
+    result = await request(handler, "/api/health");
+    assert.equal(result.response.statusCode, 200);
+    assert.equal(result.body.status, "ok");
+  }, { env: { NODE_ENV: "test" } });
+});

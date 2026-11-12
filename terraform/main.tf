@@ -116,11 +116,14 @@ resource "aws_vpc_security_group_ingress_rule" "https" {
 
 resource "aws_vpc_security_group_egress_rule" "https" {
   security_group_id = aws_security_group.site.id
-  cidr_ipv4         = "0.0.0.0/0"
-  from_port         = 443
-  to_port           = 443
-  ip_protocol       = "tcp"
-  description       = "HTTPS egress only; application dependencies and AWS APIs use TLS."
+  # Egress destination stays open because the instance must reach MongoDB Atlas
+  # and public AWS service endpoints over TLS; Atlas has no service prefix list.
+  # Blast radius is contained by pinning port and protocol to TCP/443.
+  cidr_ipv4   = "0.0.0.0/0" # trivy:ignore:AWS-0104
+  from_port   = 443
+  to_port     = 443
+  ip_protocol = "tcp"
+  description = "TLS egress only; application dependencies and AWS APIs use TLS."
 }
 
 resource "aws_iam_role" "instance" {

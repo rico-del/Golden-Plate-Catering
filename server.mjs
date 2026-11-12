@@ -609,6 +609,10 @@ export function createServer(options = {}) {
         return jsonResponse(res, 200, { status });
       }
 
+      if (url.pathname.startsWith("/api/")) {
+        return jsonResponse(res, 404, { error: "Not found." });
+      }
+
       if (method !== "GET" && method !== "HEAD") return jsonResponse(res, 405, { error: "Method not allowed." }, { Allow: "GET, HEAD" });
 
       if (url.pathname.startsWith("/assets/")) {

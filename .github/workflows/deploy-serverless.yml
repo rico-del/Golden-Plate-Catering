@@ -1,0 +1,346 @@
+name: Deploy v2 serverless
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_deploy:
+        description: Type deploy-serverless to authorize a reviewed production plan
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: golden-plate-serverless-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.SERVERLESS_AWS_REGION }}
+  TF_IN_AUTOMATION: 'true'
+  TF_INPUT: 'false'
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main' && inputs.confirm_deploy == 'deploy-serverless'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install application dependencies
+        run: npm ci
+      - name: Install Lambda dependencies
+        run: npm ci --prefix lambda
+      - name: Check, build, and test
+        run: |
+          npm run check
+          npm run build
+          npm test
+          node --test test/serverless.test.mjs
+      - name: Build serverless Lambda package
+        run: npm run package:serverless -- "$RUNNER_TEMP/serverless-lambda.zip"
+      - name: Upload Lambda artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: serverless-lambda-${{ github.sha }}
+          path: ${{ runner.temp }}/serverless-lambda.zip
+          if-no-files-found: error
+          retention-days: 1
+  security:
+    needs: verify
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Scan tracked source, dependencies, IaC, and secrets with Trivy
+        env:
+          TRIVY_IMAGE: aquasec/trivy@sha256:bcc376de8d77cfe086a917230e818dc9f8528e3c852f7b1aff648949b6258d1c
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$GITHUB_WORKSPACE:/workspace" -w /workspace "$TRIVY_IMAGE" \
+            fs --scanners vuln,misconfig,secret --severity HIGH,CRITICAL --ignore-unfixed \
+            --skip-dirs .git,node_modules,dist,terraform/.terraform .
+
+  plan:
+    needs: [verify, security]
+    if: github.ref == 'refs/heads/main' && inputs.confirm_deploy == 'deploy-serverless'
+    runs-on: ubuntu-latest
+    outputs:
+      changes: ${{ steps.summary.outputs.changes }}
+    environment: serverless-production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Configure AWS credentials for isolated stack plan
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.SERVERLESS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ vars.SERVERLESS_AWS_REGION }}
+          audience: sts.amazonaws.com
+      - name: Verify AWS account and required configuration
+        env:
+          EXPECTED_ACCOUNT_ID: ${{ vars.SERVERLESS_AWS_ACCOUNT_ID }}
+          TERRAFORM_ROLE_ARN: ${{ vars.SERVERLESS_TERRAFORM_ROLE_ARN }}
+          DEPLOY_ROLE_ARN: ${{ vars.SERVERLESS_DEPLOY_ROLE_ARN }}
+          AWS_REGION_INPUT: ${{ vars.SERVERLESS_AWS_REGION }}
+          AVAILABILITY_ZONE: ${{ vars.SERVERLESS_AVAILABILITY_ZONE }}
+          DEPLOYMENT_BUCKET: ${{ vars.SERVERLESS_DEPLOYMENT_BUCKET_NAME }}
+          CERTBOT_EMAIL: ${{ vars.SERVERLESS_CERTBOT_EMAIL }}
+          SITE_BUCKET: ${{ vars.SERVERLESS_SITE_BUCKET_NAME }}
+          COGNITO_PREFIX: ${{ vars.SERVERLESS_COGNITO_DOMAIN_PREFIX }}
+          SITE_BASE_URL: ${{ vars.SERVERLESS_SITE_BASE_URL }}
+          ALERT_EMAIL: ${{ vars.SERVERLESS_ALERT_EMAIL }}
+          ENQUIRY_EMAIL: ${{ vars.SERVERLESS_ENQUIRY_NOTIFICATION_EMAIL }}
+          BUDGET_ALERT_ENABLED: ${{ vars.SERVERLESS_BUDGET_ALERT_ENABLED }}
+          BUDGET_EMAIL: ${{ vars.SERVERLESS_BUDGET_EMAIL }}
+        run: |
+          set -euo pipefail
+          actual_account="$(aws sts get-caller-identity --query Account --output text)"
+          [[ -n "$EXPECTED_ACCOUNT_ID" && "$actual_account" == "$EXPECTED_ACCOUNT_ID" ]] || { echo 'AWS account does not match the configured expected account.' >&2; exit 1; }
+          [[ -n "$TERRAFORM_ROLE_ARN" && -n "$DEPLOY_ROLE_ARN" && -n "$AWS_REGION_INPUT" && -n "$AVAILABILITY_ZONE" && -n "$DEPLOYMENT_BUCKET" && -n "$CERTBOT_EMAIL" ]] || { echo 'Missing serverless role, region/AZ, deployment bucket, or certificate contact configuration.' >&2; exit 1; }
+          [[ "$TERRAFORM_ROLE_ARN" =~ ^arn:aws:iam::[0-9]{12}:role/.+ && "$DEPLOY_ROLE_ARN" =~ ^arn:aws:iam::[0-9]{12}:role/.+ ]] || { echo 'Terraform and deploy role ARNs must be valid IAM roles.' >&2; exit 1; }
+          [[ "$SITE_BUCKET" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]] || { echo 'SERVERLESS_SITE_BUCKET_NAME missing or invalid.' >&2; exit 1; }
+          [[ "$COGNITO_PREFIX" =~ ^[a-z0-9-]{1,63}$ ]] || { echo 'SERVERLESS_COGNITO_DOMAIN_PREFIX missing or invalid.' >&2; exit 1; }
+          [[ "$SITE_BASE_URL" =~ ^https://[^/]+$ ]] || { echo 'SERVERLESS_SITE_BASE_URL must be an approved HTTPS origin without a path.' >&2; exit 1; }
+          [[ "$SITE_BASE_URL" != 'https://example.com' ]] || { echo 'Replace the example site URL before planning production.' >&2; exit 1; }
+          [[ -n "${{ vars.SERVERLESS_TF_STATE_BUCKET }}" && -n "${{ vars.SERVERLESS_TF_LOCK_TABLE }}" ]] || { echo 'Configure a dedicated encrypted/versioned Terraform state bucket and lock table.' >&2; exit 1; }
+          [[ "$ALERT_EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || { echo 'SERVERLESS_ALERT_EMAIL missing or invalid.' >&2; exit 1; }
+          if [[ -n "$ENQUIRY_EMAIL" && ! "$ENQUIRY_EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]]; then echo 'SERVERLESS_ENQUIRY_NOTIFICATION_EMAIL invalid.' >&2; exit 1; fi
+          if [[ "$BUDGET_ALERT_ENABLED" == 'true' && ! "$BUDGET_EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]]; then echo 'SERVERLESS_BUDGET_EMAIL required when the optional budget alert is enabled.' >&2; exit 1; fi
+          aws sts get-caller-identity --query '{Account:Account,Arn:Arn}' --output json
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.11.4
+          terraform_wrapper: false
+      - name: Download Lambda artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: serverless-lambda-${{ github.sha }}
+          path: ${{ runner.temp }}/lambda
+      - name: Create and inspect saved plan
+        id: plan
+        env:
+          TF_VAR_aws_region: ${{ vars.SERVERLESS_AWS_REGION }}
+          TF_VAR_availability_zone: ${{ vars.SERVERLESS_AVAILABILITY_ZONE }}
+          TF_VAR_enable_serverless: 'true'
+          TF_VAR_serverless_reserved_concurrency: ${{ vars.SERVERLESS_RESERVED_CONCURRENCY || '2' }}
+          TF_VAR_serverless_budget_limit_usd: ${{ vars.SERVERLESS_BUDGET_LIMIT_USD || '5' }}
+          TF_VAR_application_version: ${{ github.sha }}
+          TF_VAR_contact_email: ${{ vars.SERVERLESS_CONTACT_EMAIL }}
+          TF_VAR_contact_phone: ${{ vars.SERVERLESS_CONTACT_PHONE }}
+          TF_VAR_whatsapp_number: ${{ vars.SERVERLESS_WHATSAPP_NUMBER }}
+          TF_VAR_facebook_url: ${{ vars.SERVERLESS_FACEBOOK_URL }}
+          TF_VAR_instagram_url: ${{ vars.SERVERLESS_INSTAGRAM_URL }}
+          TF_VAR_tiktok_url: ${{ vars.SERVERLESS_TIKTOK_URL }}
+          TF_VAR_serverless_site_bucket_name: ${{ vars.SERVERLESS_SITE_BUCKET_NAME }}
+          TF_VAR_cognito_domain_prefix: ${{ vars.SERVERLESS_COGNITO_DOMAIN_PREFIX }}
+          TF_VAR_serverless_site_base_url: ${{ vars.SERVERLESS_SITE_BASE_URL }}
+          TF_VAR_serverless_alert_email: ${{ vars.SERVERLESS_ALERT_EMAIL }}
+          TF_VAR_enquiry_notification_email: ${{ vars.SERVERLESS_ENQUIRY_NOTIFICATION_EMAIL }}
+          TF_VAR_enable_serverless_budget_alert: ${{ vars.SERVERLESS_BUDGET_ALERT_ENABLED }}
+          TF_VAR_serverless_budget_email: ${{ vars.SERVERLESS_BUDGET_EMAIL }}
+          TF_VAR_serverless_lambda_package_path: ${{ runner.temp }}/lambda/serverless-lambda.zip
+          SERVERLESS_TF_STATE_BUCKET: ${{ vars.SERVERLESS_TF_STATE_BUCKET }}
+          SERVERLESS_TF_STATE_KEY: ${{ vars.SERVERLESS_TF_STATE_KEY }}
+          SERVERLESS_TF_LOCK_TABLE: ${{ vars.SERVERLESS_TF_LOCK_TABLE }}
+
+        run: |
+          set -euo pipefail
+          : "${TF_VAR_aws_region:?SERVERLESS_AWS_REGION is required}"
+          : "${TF_VAR_availability_zone:?SERVERLESS_AVAILABILITY_ZONE is required}"
+          : "${TF_VAR_application_version:?Application commit version is required}"
+          : "${SERVERLESS_TF_STATE_BUCKET:?SERVERLESS_TF_STATE_BUCKET is required}"
+          : "${SERVERLESS_TF_LOCK_TABLE:?SERVERLESS_TF_LOCK_TABLE is required}"
+          test -s "$TF_VAR_serverless_lambda_package_path"
+          terraform -chdir=terraform/serverless-stack init -input=false -lockfile=readonly -reconfigure \
+            -backend-config="bucket=$SERVERLESS_TF_STATE_BUCKET" \
+            -backend-config="key=${SERVERLESS_TF_STATE_KEY:-golden-plate/serverless/terraform.tfstate}" \
+            -backend-config="region=$TF_VAR_aws_region" \
+            -backend-config="dynamodb_table=$SERVERLESS_TF_LOCK_TABLE" \
+            -backend-config="encrypt=true"
+          terraform -chdir=terraform/serverless-stack validate
+          terraform -chdir=terraform/serverless-stack plan -input=false -lock-timeout=5m -out="$RUNNER_TEMP/serverless.tfplan" -var="lambda_package_path=$TF_VAR_serverless_lambda_package_path"
+          terraform -chdir=terraform/serverless-stack show -no-color "$RUNNER_TEMP/serverless.tfplan" > "$RUNNER_TEMP/serverless-plan.txt"
+          cat "$RUNNER_TEMP/serverless-plan.txt"
+          terraform -chdir=terraform/serverless-stack show -json "$RUNNER_TEMP/serverless.tfplan" > "$RUNNER_TEMP/serverless-plan.json"
+          python3 - "$RUNNER_TEMP/serverless-plan.json" <<'PY'
+          import json, sys
+          plan = json.load(open(sys.argv[1], encoding='utf-8'))
+          allowed = (
+              'aws_s3_bucket.serverless_site[', 'aws_s3_bucket_public_access_block.serverless_site[',
+              'aws_s3_bucket_ownership_controls.serverless_site[', 'aws_s3_bucket_server_side_encryption_configuration.serverless_site[',
+              'aws_s3_bucket_versioning.serverless_site[', 'aws_cloudfront_origin_access_control.serverless_site[',
+              'aws_cloudfront_function.serverless_spa[', 'aws_cloudfront_response_headers_policy.serverless_security[',
+              'aws_dynamodb_table.serverless[', 'aws_sns_topic.enquiries[', 'aws_sns_topic.serverless_alerts[',
+              'aws_cognito_user_pool.serverless[', 'aws_cognito_user_pool_domain.serverless[', 'aws_cognito_user_pool_client.serverless[',
+              'aws_sns_topic_subscription.enquiry_email[', 'aws_sns_topic_subscription.serverless_alert_email[',
+              'aws_cloudwatch_log_group.lambda[', 'aws_iam_role.lambda[', 'aws_iam_role_policy.lambda_logs[',
+              'aws_iam_role_policy.lambda_data[', 'aws_lambda_function.serverless[', 'aws_apigatewayv2_api.serverless[',
+              'aws_apigatewayv2_authorizer.owner[', 'aws_apigatewayv2_integration.serverless[',
+              'aws_apigatewayv2_route.serverless[', 'aws_lambda_permission.serverless_api[',
+              'aws_apigatewayv2_stage.serverless[', 'aws_cloudfront_distribution.serverless[',
+              'aws_s3_bucket_policy.serverless_site[', 'aws_s3_object.serverless_auth_config[',
+              'aws_iam_role.serverless_deploy[', 'aws_iam_role_policy.serverless_deploy[',
+              'aws_cloudwatch_metric_alarm.lambda_errors[', 'aws_cloudwatch_metric_alarm.lambda_throttles[',
+              'aws_cloudwatch_metric_alarm.api_5xx[', 'aws_budgets_budget.serverless['
+          )
+          bad = []
+          for item in plan.get('resource_changes', []):
+              actions = item.get('change', {}).get('actions', [])
+              address = item['address']
+              if actions != ['no-op'] and not address.startswith(allowed):
+                  bad.append((address, actions))
+              if 'delete' in actions:
+                  bad.append((address, actions))
+          if bad:
+              print('Refusing plan: changes must be v2-only and must not delete or replace resources:', bad, file=sys.stderr)
+              sys.exit(1)
+          print('Plan policy passed: all changes are v2-only and no resource is deleted or replaced.')
+          PY
+      - name: Report planned change count
+        id: summary
+        run: |
+          set -euo pipefail
+          changes="$(python3 - "$RUNNER_TEMP/serverless-plan.json" <<'PY'
+          import json, sys
+          plan = json.load(open(sys.argv[1], encoding='utf-8'))
+          print(sum(1 for item in plan.get('resource_changes', []) if item.get('change', {}).get('actions') != ['no-op']))
+          PY
+          )"
+          echo "changes=$changes" >> "$GITHUB_OUTPUT"
+          echo "Terraform has $changes change(s)."
+      - name: Upload reviewed plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: serverless-plan-${{ github.sha }}
+          path: ${{ runner.temp }}/serverless.tfplan
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+  apply:
+    needs: [verify, security, plan]
+    if: github.ref == 'refs/heads/main' && inputs.confirm_deploy == 'deploy-serverless'
+    runs-on: ubuntu-latest
+    environment: serverless-production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Configure AWS credentials for reviewed apply with GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.SERVERLESS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ vars.SERVERLESS_AWS_REGION }}
+          audience: sts.amazonaws.com
+      - name: Verify AWS account
+        env:
+          EXPECTED_ACCOUNT_ID: ${{ vars.SERVERLESS_AWS_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          actual_account="$(aws sts get-caller-identity --query Account --output text)"
+          [[ -n "$EXPECTED_ACCOUNT_ID" && "$actual_account" == "$EXPECTED_ACCOUNT_ID" ]] || { echo 'AWS account mismatch.' >&2; exit 1; }
+      - name: Download the exact approved plan
+        uses: actions/download-artifact@v4
+        with:
+          name: serverless-plan-${{ github.sha }}
+          path: ${{ runner.temp }}/plan
+      - name: Download matching Lambda artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: serverless-lambda-${{ github.sha }}
+          path: ${{ runner.temp }}/lambda
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.11.4
+          terraform_wrapper: false
+      - name: Initialize isolated serverless Terraform backend
+        env:
+          SERVERLESS_TF_STATE_BUCKET: ${{ vars.SERVERLESS_TF_STATE_BUCKET }}
+          SERVERLESS_TF_STATE_KEY: ${{ vars.SERVERLESS_TF_STATE_KEY }}
+          SERVERLESS_TF_LOCK_TABLE: ${{ vars.SERVERLESS_TF_LOCK_TABLE }}
+          AWS_REGION: ${{ vars.SERVERLESS_AWS_REGION }}
+        run: |
+          set -euo pipefail
+          terraform -chdir=terraform/serverless-stack init -input=false -lockfile=readonly -reconfigure \
+            -backend-config="bucket=$SERVERLESS_TF_STATE_BUCKET" \
+            -backend-config="key=${SERVERLESS_TF_STATE_KEY:-golden-plate/serverless/terraform.tfstate}" \
+            -backend-config="region=$AWS_REGION" \
+            -backend-config="dynamodb_table=$SERVERLESS_TF_LOCK_TABLE" \
+            -backend-config="encrypt=true"
+      - name: Verify artifact and isolated state before apply
+        run: |
+          set -euo pipefail
+          test -s "$RUNNER_TEMP/lambda/serverless-lambda.zip"
+          if ! terraform -chdir=terraform/serverless-stack state list > "$RUNNER_TEMP/serverless-state.txt"; then
+            echo 'Could not read remote v2 state; refusing apply.' >&2
+            exit 1
+          fi
+          if grep -Eq 'aws_instance|aws_eip|mongodbatlas_' "$RUNNER_TEMP/serverless-state.txt"; then
+            echo 'Refusing apply: v1 resources are present in the v2 state.' >&2
+            exit 1
+          fi
+          if [[ "${{ needs.plan.outputs.changes }}" -eq 0 ]]; then
+            echo 'No Terraform changes; artifact-only CD is permitted.'
+          fi
+      - name: Apply reviewed plan
+        run: terraform -chdir=terraform/serverless-stack apply -input=false -lock-timeout=5m "$RUNNER_TEMP/plan/serverless.tfplan"
+      - name: Read serverless deployment outputs
+        id: outputs
+        run: |
+          set -euo pipefail
+          site_url="$(terraform -chdir=terraform/serverless-stack output -raw serverless_site_url)"
+          bucket="$(terraform -chdir=terraform/serverless-stack output -raw serverless_site_bucket_name)"
+          distribution="$(terraform -chdir=terraform/serverless-stack output -raw serverless_cloudfront_distribution_id)"
+          [[ "$site_url" =~ ^https://[A-Za-z0-9.-]+$ && -n "$bucket" && -n "$distribution" ]] || { echo 'Terraform returned incomplete deployment outputs.' >&2; exit 1; }
+          echo "site_url=$site_url" >> "$GITHUB_OUTPUT"
+          echo "bucket=$bucket" >> "$GITHUB_OUTPUT"
+          echo "distribution=$distribution" >> "$GITHUB_OUTPUT"
+      - name: Publish Lambda code
+        env:
+          AWS_REGION: ${{ vars.SERVERLESS_AWS_REGION }}
+          LAMBDA_FUNCTION_NAMES: golden-plate-reviews-read,golden-plate-review-submit,golden-plate-enquiry-submit,golden-plate-admin
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity --query '{Account:Account,Arn:Arn}' --output json
+          IFS=',' read -ra functions <<< "$LAMBDA_FUNCTION_NAMES"
+          for function in "${functions[@]}"; do
+            aws lambda update-function-code --function-name "$function" --zip-file "fileb://$RUNNER_TEMP/lambda/serverless-lambda.zip" --publish >/dev/null
+            aws lambda wait function-updated-v2 --function-name "$function"
+          done
+      - name: Build and publish static site safely
+        env:
+          SITE_BUCKET: ${{ vars.SERVERLESS_SITE_BUCKET_NAME }}
+          DISTRIBUTION_ID: ${{ steps.outputs.distribution }}
+        run: |
+          set -euo pipefail
+          [[ -d public && -n "$SITE_BUCKET" && -n "$DISTRIBUTION_ID" ]]
+          # Auth config is generated by Terraform and must not be overwritten by static sync.
+          aws s3 sync public/ "s3://$SITE_BUCKET/" --delete --exclude 'serverless-auth-config.js' --cache-control 'public,max-age=300' --only-show-errors
+          aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths '/*' >/dev/null
+      - name: Verify CloudFront, health, and API response
+        env:
+          SITE_URL: ${{ steps.outputs.site_url }}
+        run: |
+          set -euo pipefail
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error --max-time 10 "$SITE_URL/api/health" -o "$RUNNER_TEMP/health.json"; then
+              node -e 'const h=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); if(h.status!=="ok" || h.persistence!=="dynamodb") process.exit(1)' "$RUNNER_TEMP/health.json" && exit 0
+            fi
+            sleep 20
+          done
+          echo 'Serverless health check did not pass. v1 has not been changed; do not cut over public DNS.' >&2
+          exit 1

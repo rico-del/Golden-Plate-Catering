@@ -7,6 +7,12 @@ terraform/.terraform/
 terraform/terraform.tfstate*
 terraform/*.tfplan
 terraform/terraform.tfvars
+terraform/serverless.tfvars
+terraform/serverless-stack/.terraform/
+terraform/serverless-stack/*.tfstate*
+terraform/serverless-stack/*.tfplan
+terraform/serverless-stack/*.tfvars
+terraform/serverless-stack/.terraform.lock.hcl.backup
 terraform/tfvars.runtime
 data/*.json
 !.gitkeep

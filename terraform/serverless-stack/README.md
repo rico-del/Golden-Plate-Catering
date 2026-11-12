@@ -1,0 +1,7 @@
+# v2 Serverless Terraform stack
+
+This directory contains the isolated Terraform root for the optional Golden Plate serverless stack. It owns only the v2 resources and uses an S3 backend with locking. It intentionally does not include the EC2/Atlas v1 root, so a v2 deployment plan cannot recreate or delete v1 resources.
+
+Configure the backend with `SERVERLESS_TF_STATE_BUCKET`, `SERVERLESS_TF_STATE_KEY` (default `golden-plate/serverless/terraform.tfstate`), `SERVERLESS_AWS_REGION`, and `SERVERLESS_TF_LOCK_TABLE`. The backend bucket and DynamoDB lock table must be provisioned, encrypted, versioned, and access-restricted before the first run. Do not use the application assets bucket as the state bucket. The v2 static site and DynamoDB use customer-managed KMS encryption keys with rotation. CloudFront is protected by AWS-managed common and known-bad-input WAF rule groups; review false positives and KMS/WAF cost before production approval.
+
+The GitHub `serverless-production` environment must have required reviewers and a main-only deployment branch policy. Configure GitHub Environment variables used by `.github/workflows/deploy-serverless.yml`; use GitHub Environment secrets for Atlas provider credentials only if managing Atlas through this root (the isolated v2 root deliberately declares no Atlas or v1 application credentials). AWS access uses OIDC roles, not long-lived access keys.

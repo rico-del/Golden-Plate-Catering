@@ -29,7 +29,7 @@ try {
   if (install.status !== 0) throw new Error("Could not install the locked Lambda dependencies.");
   await fs.cp(path.join(lambdaDirectory, "node_modules"), path.join(stagingDirectory, "node_modules"), { recursive: true });
 
-  const archive = spawnSync("zip", ["-q", "-r", outputPath, "."], { cwd: stagingDirectory, stdio: "inherit" });
+  const archive = spawnSync("python3", ["-c", "import pathlib, sys, zipfile; root = pathlib.Path(sys.argv[1]); output = pathlib.Path(sys.argv[2]); z = zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED); [(z.write(p, p.relative_to(root))) for p in root.rglob('*') if p.is_file()]; z.close()", stagingDirectory, outputPath], { stdio: "inherit" });
   if (archive.status !== 0) throw new Error("Could not create the Lambda deployment archive.");
   console.log(`Created ${outputPath}`);
 } finally {

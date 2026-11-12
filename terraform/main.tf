@@ -114,10 +114,13 @@ resource "aws_vpc_security_group_ingress_rule" "https" {
   ip_protocol       = "tcp"
 }
 
-resource "aws_vpc_security_group_egress_rule" "outbound" {
+resource "aws_vpc_security_group_egress_rule" "https" {
   security_group_id = aws_security_group.site.id
   cidr_ipv4         = "0.0.0.0/0"
-  ip_protocol       = "-1"
+  from_port         = 443
+  to_port           = 443
+  ip_protocol       = "tcp"
+  description       = "HTTPS egress only; application dependencies and AWS APIs use TLS."
 }
 
 resource "aws_iam_role" "instance" {
@@ -144,6 +147,7 @@ resource "aws_iam_role_policy" "runtime" {
     Version = "2012-10-17"
     Statement = [
       { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${aws_s3_bucket.deployments.arn}/*" },
+      { Effect = "Allow", Action = ["kms:Decrypt", "kms:DescribeKey"], Resource = aws_kms_key.deployments.arn },
       { Effect = "Allow", Action = ["ssm:GetParameter", "ssm:GetParameters"], Resource = [aws_ssm_parameter.mongo_uri.arn, aws_ssm_parameter.admin_username.arn, aws_ssm_parameter.admin_password.arn] }
     ]
   })
@@ -171,9 +175,22 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "deployments" {
   bucket = aws_s3_bucket.deployments.id
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.deployments.arn
     }
+    bucket_key_enabled = true
   }
+}
+
+resource "aws_kms_key" "deployments" {
+  description             = "Golden Plate deployment artifact encryption key."
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+}
+
+resource "aws_kms_alias" "deployments" {
+  name          = "alias/golden-plate-deployments"
+  target_key_id = aws_kms_key.deployments.key_id
 }
 
 resource "aws_s3_object" "application" {

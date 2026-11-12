@@ -1,0 +1,13 @@
+# Duplicate as terraform/serverless.tfvars (ignored by git) for a local v2 plan,
+# or configure matching GitHub Environment variables for the gated CD workflow.
+# Set the final HTTPS origin here before applying Cognito callback/logout URIs.
+enable_serverless           = true
+serverless_site_bucket_name = "replace-with-globally-unique-bucket-name"
+cognito_domain_prefix       = "replace-with-unique-prefix"
+serverless_site_base_url    = "https://replace-with-approved-site-host"
+serverless_alert_email      = "operator@example.com"
+
+# Optional enquiry notifications and budget alert configuration.
+enquiry_notification_email   = ""
+enable_serverless_budget_alert = false
+serverless_budget_email       = ""

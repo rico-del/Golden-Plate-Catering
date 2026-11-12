@@ -32,8 +32,24 @@ jobs:
           npm run build
           npm test
 
-  container:
+  security:
     needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Scan tracked source, dependencies, IaC, and secrets with Trivy
+        env:
+          TRIVY_IMAGE: aquasec/trivy@sha256:bcc376de8d77cfe086a917230e818dc9f8528e3c852f7b1aff648949b6258d1c
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$GITHUB_WORKSPACE:/workspace" -w /workspace "$TRIVY_IMAGE" \
+            fs --scanners vuln,misconfig,secret --severity HIGH,CRITICAL --ignore-unfixed \
+            --skip-dirs .git,node_modules,dist,terraform/.terraform .
+  container:
+    needs: [test, security]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -49,8 +65,21 @@ jobs:
         with:
           context: .
           push: false
+          load: true
+          tags: golden-plate-catering:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Scan built container image with Trivy
+        env:
+          TRIVY_IMAGE: aquasec/trivy@sha256:bcc376de8d77cfe086a917230e818dc9f8528e3c852f7b1aff648949b6258d1c
+        run: >-
+          docker run --rm
+          -v /var/run/docker.sock:/var/run/docker.sock
+          -e DOCKER_HOST=unix:///var/run/docker.sock
+          "$TRIVY_IMAGE"
+          image --scanners vuln,misconfig,secret
+          --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+          golden-plate-catering:ci
 
   publish-container:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

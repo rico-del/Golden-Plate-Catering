@@ -32,6 +32,11 @@ resource "aws_iam_role_policy" "github_deploy" {
         Resource = "${aws_s3_bucket.deployments.arn}/releases/production/*"
       },
       {
+        Effect   = "Allow"
+        Action   = ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
+        Resource = [aws_kms_key.deployments.arn]
+      },
+      {
         Effect = "Allow"
         Action = ["ssm:SendCommand"]
         Resource = concat([

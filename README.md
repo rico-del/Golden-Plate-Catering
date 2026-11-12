@@ -1,50 +1,16 @@
-# Golden Plate Catering
+# Golden Plate Catering — v2 Serverless
 
-**Production status: live.** [Visit Golden Plate Catering](https://goldenplatecatering.duckdns.org/)
+## Overview
 
-## Intro
+Golden Plate Catering is a client-facing catering website with public service and menu pages, review moderation, and enquiry submission. This v2 release represents the serverless architecture direction, using CloudFront and private S3 for the website, API Gateway and Lambda for application APIs, DynamoDB for application data, Cognito for administrator authentication, and SNS for notifications.
 
-This project is my first real client project, and it gave me the opportunity to design, build, deploy, and operate a production-aware web application end-to-end. I wanted to show not just frontend work, but also the DevOps thinking behind it: GitHub automation, Infrastructure as Code, secure AWS configuration, deployment safety, and cost-conscious architecture decisions.
+The serverless resources are defined as an opt-in Terraform stack. `enable_serverless` defaults to `false`; enabling and applying it is a deliberate production change, not an automatic cutover. The existing EC2 release remains the known production baseline until the v2 deployment and migration have been verified.
 
-The site itself is a real catering business website for a local brand. The engineering value came from combining a polished product with strong operational practices: CI validation, immutable release packaging, controlled AWS access, local health checks, and a measured approach to cost.
-
-I also want to be transparent that the Terraform foundation was not built entirely from scratch: I reused patterns and infrastructure ideas from my earlier Munch_Catering work as a template, then adapted them to this client project, the environment, and the current requirements. That reuse was part of my learning process, and it helped me move quickly while still applying the architecture to a different business context.
-
-I used this project as a practical learning ground for my DevOps journey. It is a blend of product delivery, infrastructure design, and operational discipline, which is exactly the type of work I want to keep building on in my career.
-
-### DevOps stack in focus
-
-- Node.js for the application runtime and API logic
-- Terraform for AWS and Atlas configuration
-- GitHub Actions for CI, validation, and deployment automation
-- AWS SSM, EC2, S3, CloudFront, Lambda, DynamoDB, Cognito, SNS and CloudWatch
-- Prometheus, Grafana, Alertmanager and Blackbox for observability
-- Secure release + rollback patterns with immutable artifacts and staged activation
-
-## Why I explored a different architecture
-
-One of the key reasons I explored the serverless path was cost efficiency. I wanted to understand whether a CloudFront + S3 + API Gateway + Lambda + DynamoDB model could offer a leaner operating model for a small website while still keeping the product secure and easy to maintain.
-
-This was a design and learning exercise, not a claim that the account already had a confirmed AWS billing advantage. I did not have account-level billing proof available in this environment, so I did not treat the cost reduction as a fact. I treated it as an engineering evaluation: compare the current EC2 + MongoDB Atlas architecture with a serverless option, identify trade-offs, and decide whether the lower-cost path was worth the migration effort before spending money.
-
-That is why the architecture work is framed as a cost-conscious exploration rather than a production migration claim. The live stack remains the verified production baseline until a reviewed bill analysis, a signed-off migration plan, and a fresh Terraform apply are completed.
-
-## Project overview
-
-The site presents the business clearly, lets customers submit enquiries, and separates public content from private moderation flows. The project includes:
-
-- public pages for services, work, menu, reviews, contact and privacy
-- image and video assets with accessibility-friendly content
-- server-side validation for enquiry and review submissions
-- moderated review approval before publication
-- secure owner-only admin access for enquiry and review management
-- operational metrics and health checks for production reliability
-
-## Architecture diagram
+## v2 architecture
 
 ```mermaid
 flowchart LR
-    User[Visitor / Client / Admin] --> CDN[CloudFront Edge]
+    User[Visitor / Client / Admin] --> CDN[CloudFront]
     CDN --> S3[Private S3 Website Bucket]
     CDN --> API[API Gateway HTTP API]
 
@@ -57,87 +23,66 @@ flowchart LR
     R2 --> DDB
     R3 --> DDB
     R4 --> DDB
-    R3 --> SNS[SNS Email Topic]
+    R3 --> SNS[SNS Enquiry Notifications]
 
-    R4 --> Cognito[Cognito User Pool + JWT Authorizer]
-    User --> Cognito
-
-    GH[GitHub Actions] --> TF[Terraform]
-    TF --> AWS[AWS Infrastructure]
-    GH --> OIDC[OIDC Deployment Role]
-    OIDC --> S3
-    OIDC --> API
-    OIDC --> Cloudfront[CloudFront Invalidation]
-
-    subgraph " Cost-focused architecture exploration "
-        CDN
-        S3
-        API
-        DDB
-        Cognito
-    end
+    User --> Cognito[Cognito User Pool]
+    Cognito -->|JWT authorizer| API
+    GH[GitHub Actions] -->|OIDC| DeployRole[AWS Deploy Role]
+    DeployRole --> S3
+    DeployRole --> CDN
 ```
 
-This diagram shows the serverless direction I explored for a cost-aware production model. The goal was to reduce infrastructure overhead while keeping a clean edge layer, a protected admin path, and a low-maintenance deployment model.
+## Application capabilities
 
-## Live production architecture
+- Public pages for services, menu, work, reviews, contact, and privacy.
+- Server-side validation for submitted reviews and enquiries.
+- Review moderation with owner-only authorization.
+- Enquiry persistence and optional SNS email notifications.
+- CloudFront delivery with a private S3 origin, security headers, and API routing.
+- Lambda concurrency bounds and CloudWatch alarms for key failure signals.
 
-The current live site is hosted in a more traditional path: an Ubuntu EC2 instance, a Node.js process managed by systemd, MongoDB Atlas for persistence, Nginx for TLS termination, and AWS access managed through SSM and IAM roles. That remains the verified production foundation I used for the site.
+## Deployment status and prerequisites
 
-```mermaid
-flowchart LR
-    Visitor[Website visitor] --> Nginx[Nginx on EC2]
-    Nginx --> Node[Node.js app]
-    Node --> Atlas[(MongoDB Atlas)]
-    Node --> Health[GET /api/health]
+Terraform defines the parallel serverless resources in `terraform/serverless.tf`. Before production deployment:
 
-    GH[GitHub Actions] --> Deploy[Production deployment workflow]
-    Deploy --> OIDC[GitHub OIDC role]
-    OIDC --> S3Bucket[S3 release bucket]
-    OIDC --> SSM[SSM Run Command]
-    SSM --> EC2[Ubuntu EC2 host]
-    EC2 --> Rollback[Release rollback logic]
-```
+1. Review and set the serverless Terraform inputs in a protected runtime configuration: enable the stack, choose an available S3 bucket name and Cognito domain prefix, set the eventual public site URL, and provide approved notification/alert addresses.
+2. Build the Lambda archive with `npm run package:serverless` and verify the intended source and dependencies are included.
+3. Establish the serverless GitHub Actions environment and OIDC trust. The Terraform trust policy is scoped to the `serverless-production` GitHub environment; it is separate from the existing EC2 `production` deployment.
+4. Review the full Terraform plan for costs, existing-resource changes, state handling, and data-retention behavior. Do not apply a serverless plan that replaces or destroys v1 resources as part of initial provisioning.
+5. Deploy the static assets and API, test health and user flows, confirm SNS subscriptions, and migrate/validate any production reviews, enquiries, and administrator accounts before changing public traffic.
+6. Perform an approved DNS/domain cutover only after the v2 environment passes acceptance checks. Keep a documented rollback route to v1.
 
-This is the baseline architecture I validated first. It is stable, operationally familiar, and appropriate for a real client project while I continued evaluating the lower-cost serverless alternative.
+The repository does not currently have a separate serverless deploy workflow, and a successful production cutover is not claimed in this README. The classic `Production deployment` workflow targets the EC2 application and must not be mistaken for a v2 deployment workflow.
 
-## CI/CD and delivery
+## Cost notes
 
-I built the project with a practical DevOps mindset:
+AWS billing data checked on 4 November 2026 showed a $1/month account budget, $0 actual account spend, and a $44.672 account-wide forecast. Cost Explorer showed $0 billed EC2 compute for `eu-west-1` during August–October 2026, while AWS Pricing lists the live v1 Linux `t3.micro` at $0.0114/hour (about $8.32 for 730 hours). These are account-level billed data and a gross EC2 compute list-price component, not a Golden Plate total-cost comparison.
 
-- GitHub Actions validates every PR and push
-- Node checks, build validation and tests are automated
-- Terraform is used for AWS and data-layer configuration
-- release artifacts are immutable and SHA-based
-- deployment is separated from runtime operations
-- rollback logic is prepared for the release path
+A v2 total-cost forecast and savings percentage are not stated: the serverless stack has not yet been deployed and measured, and comparable request, transfer, storage, and database-migration quantities are not yet established. Cost details and calculation scope are documented in the v1 README alongside its baseline.
 
-The project also includes the deployment hardening I wrote for safer production operations: host-side activation, version verification, SSM-run release logic, release state tracking, and safe rollback triggers.
+## CI and security checks
 
-## Local development
+Pull requests and `main` pushes run application syntax checks, build validation, and tests. CI also runs Trivy scans against the repository filesystem (vulnerability, IaC misconfiguration, and secret checks) and the built container image; CRITICAL/HIGH findings with fixes available fail the pipeline. Container publication waits for successful test/security and image-build jobs.
 
-Requirements: Node.js 22 recommended and npm.
+The scanner image is pinned to an immutable digest and Trivy version 0.69.3, avoiding reliance on mutable scanner tags after the documented 2026 Trivy supply-chain incident. See the [Trivy security advisory](https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23). A local Trivy IaC/secret scan found two existing findings in the v1 Terraform: unrestricted outbound security-group traffic (CRITICAL) and S3 SSE-S3 rather than a customer-managed KMS key (HIGH). These findings were not suppressed; the scan exits nonzero. Resolve them or make a reviewed, documented exception before treating the security gate as passing.
+
+## Development and validation
+
+Requirements: Node.js 22 (Node.js 20 or newer is supported) and npm.
 
 ```sh
 npm ci
 npm run check
 npm run build
 npm test
-npm start
+npm run package:serverless
 ```
 
-Open `http://127.0.0.1:3000`.
+## Repository layout
 
-## Security and operations notes
-
-- production credentials are never committed to the repository
-- runtime secrets are handled through AWS-managed secret and parameter patterns
-- the app includes security headers, request validation, rate limiting and admin-only moderation flows
-- metrics and monitoring are designed for operational visibility without exposing raw customer data
-- no live deployment or unattended production migration is claimed without an approved change and a reviewed plan
-
-## Closing note
-
-This repository reflects the kind of work I want to keep growing in: product engineering, cloud architecture, automation, and operational discipline. It is my first real client project, and it taught me how to move from a working website to something that is easier to trust, safer to deploy, and more professional to operate.
-
-If you are looking for a developer who can think beyond the UI and understand the platform behind the product, this project is a strong example of that mindset.
+- `public/`, `assets/` — website interface and supplied media.
+- `lambda/` — serverless API handlers.
+- `terraform/` — v1 and optional v2 infrastructure definitions.
+- `scripts/` — packaging and deployment tooling.
+- `test/` — application and handler tests.
+- `monitoring/` — observability stack documentation and configuration.

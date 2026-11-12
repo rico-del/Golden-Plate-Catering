@@ -19,3 +19,5 @@ data/*.json
 *.log
 .DS_Store
 monitoring/secrets/
+.vscode/
+v1/

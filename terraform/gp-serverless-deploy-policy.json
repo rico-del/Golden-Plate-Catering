@@ -1,0 +1,38 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LambdaPackageArtifacts",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket", "s3:GetBucketLocation"],
+      "Resource": [
+        "arn:aws:s3:::golden-plate-deploy-554013701313-eu-west-1",
+        "arn:aws:s3:::golden-plate-deploy-554013701313-eu-west-1/*"
+      ]
+    },
+    {
+      "Sid": "SiteSync",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket", "s3:GetBucketLocation", "s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+      "Resource": ["arn:aws:s3:::golden-plate-v2-site-*", "arn:aws:s3:::golden-plate-v2-site-*/*", "arn:aws:s3:::golden-plate-site-*", "arn:aws:s3:::golden-plate-site-*/*"]
+    },
+    {
+      "Sid": "LambdaPublish",
+      "Effect": "Allow",
+      "Action": ["lambda:UpdateFunctionCode", "lambda:GetFunction", "lambda:GetFunctionConfiguration", "lambda:PublishVersion", "lambda:WaitFor*", "lambda:ListFunctions", "lambda:ListTags"],
+      "Resource": "arn:aws:lambda:eu-west-1:554013701313:function:golden-plate-*"
+    },
+    {
+      "Sid": "CloudFrontInvalidate",
+      "Effect": "Allow",
+      "Action": ["cloudfront:CreateInvalidation", "cloudfront:GetInvalidation", "cloudfront:ListDistributions", "cloudfront:GetDistribution"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "HealthProbe",
+      "Effect": "Allow",
+      "Action": ["sts:GetCallerIdentity"],
+      "Resource": "*"
+    }
+  ]
+}

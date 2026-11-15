@@ -1,4 +1,15 @@
-# Golden Plate Catering — v2 Serverless
+# Golden Plate Catering — Production Website + Serverless Migration
+
+End-to-end design, build, deployment, and operation of a real client's public website — now being migrated from a classic EC2 stack to AWS serverless, with the live site, infrastructure code, CI/CD, observability, and cost controls all owned by one engineer: me.
+
+**Live production site (v1, EC2-backed):** [goldenplatecatering.duckdns.org](https://goldenplatecatering.duckdns.org/) — deployed and operated by me, with ~19 days of Prometheus metrics collected as a measured baseline.
+
+## Highlights
+
+- **Two production architectures designed hands-on:** v1 runs on EC2 + MongoDB Atlas with an immutable release pipeline and rollback; v2 is a serverless stack (CloudFront + private S3, API Gateway HTTP API, Lambda, DynamoDB, Cognito, SNS) defined as an isolated Terraform stack.
+- **Deployment safety as a first-class concern:** manual-gated Terraform workflow with plan artifact reuse, an automated plan policy that rejects any non-v2 or destructive change, environment-scoped OIDC roles (no long-lived keys), and pinned-by-digest Trivy scanning after the 2026 Trivy supply-chain incident.
+- **Evidence-driven cost analysis:** ~19 days of Prometheus/Grafana metrics from the live v1 host give a measured baseline to compare against serverless — the serverless cost claim will only be published once it can be measured, not asserted.
+- **Real application, not a demo:** server-side validation, moderated reviews, enquiry persistence with SNS notifications, health/metrics endpoints, and CloudWatch alarms.
 
 ## Overview
 

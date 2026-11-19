@@ -1,0 +1,26 @@
+name: OIDC debug
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    environment: serverless-production
+    steps:
+      - name: Decode OIDC token claims
+        env:
+          TOKEN_URL: ${{ actions_id_token_request_url }}
+          TOKEN: ${{ actions_id_token_request_token }}
+        run: |
+          set -euo pipefail
+          id_token="$(curl -s -H "Authorization: Bearer $TOKEN" "$TOKEN_URL" | python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])')"
+          python3 - "$id_token" <<'PY'
+          import base64, json, sys
+          payload = sys.argv[1].split(".")[1]
+          payload += "=" * (-len(payload) % 4)
+          claims = json.loads(base64.urlsafe_b64decode(payload))
+          for key in ("aud", "sub", "exp"):
+              print(f"{key} = {claims.get(key)}")
+          PY

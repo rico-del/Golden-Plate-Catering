@@ -186,6 +186,8 @@ jobs:
               'aws_cognito_user_pool.serverless[', 'aws_cognito_user_pool_domain.serverless[', 'aws_cognito_user_pool_client.serverless[',
               'aws_sns_topic_subscription.enquiry_email[', 'aws_sns_topic_subscription.serverless_alert_email[',
               'aws_cloudwatch_log_group.lambda[', 'aws_iam_role.lambda[', 'aws_iam_role_policy.lambda_logs[',
+              'aws_cloudwatch_log_group.api[', 'aws_kms_key.serverless', 'aws_kms_alias.serverless',
+              'aws_wafv2_web_acl.serverless',
               'aws_iam_role_policy.lambda_data[', 'aws_lambda_function.serverless[', 'aws_apigatewayv2_api.serverless[',
               'aws_apigatewayv2_authorizer.owner[', 'aws_apigatewayv2_integration.serverless[',
               'aws_apigatewayv2_route.serverless[', 'aws_lambda_permission.serverless_api[',

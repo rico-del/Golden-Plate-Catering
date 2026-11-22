@@ -198,7 +198,14 @@
         "lambda:GetFunctionConcurrency",
         "lambda:ListTags",
         "lambda:UntagResource",
-        "lambda:GetFunctionConfiguration"
+        "lambda:GetFunctionConfiguration",
+        "apigateway:TagResource",
+        "apigateway:UntagResource",
+        "apigateway:PATCH",
+        "apigateway:DELETE",
+        "apigatewayv2:TagResource",
+        "apigatewayv2:UntagResource",
+        "apigatewayv2:DELETE"
       ],
       "Resource": "*"
     }

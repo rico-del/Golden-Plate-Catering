@@ -169,6 +169,13 @@ jobs:
             -backend-config="region=$TF_VAR_aws_region" \
             -backend-config="dynamodb_table=$SERVERLESS_TF_LOCK_TABLE" \
             -backend-config="encrypt=true"
+          for tainted_addr in $(terraform -chdir=terraform/serverless-stack state pull | python3 -c "import json,sys; s=json.load(sys.stdin); print(' '.join(f\"{r['type']}.{r['name']}[{i.get('index_key', 0)}]\" for r in s.get('resources', []) for i in r.get('instances', []) if i.get('status') == 'tainted'))"); do
+            case "$tainted_addr" in
+              aws_instance*|aws_eip*|mongodbatlas_*) echo "Refusing plan: v1-typed tainted resource $tainted_addr in v2 state." >&2; exit 1 ;;
+              *) echo "Untainting $tainted_addr from a prior partial apply."
+                 terraform -chdir=terraform/serverless-stack untaint "$tainted_addr" ;;
+            esac
+          done
           terraform -chdir=terraform/serverless-stack validate
           terraform -chdir=terraform/serverless-stack plan -input=false -lock-timeout=5m -out="$RUNNER_TEMP/serverless.tfplan" -var="lambda_package_path=$TF_VAR_serverless_lambda_package_path"
           terraform -chdir=terraform/serverless-stack show -no-color "$RUNNER_TEMP/serverless.tfplan" > "$RUNNER_TEMP/serverless-plan.txt"

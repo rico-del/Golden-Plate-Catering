@@ -183,7 +183,11 @@
         "kms:RevokeGrant",
         "cognito-idp:SetUserPoolMfaConfig",
         "budgets:ListTagsForResource",
-        "cognito-idp:GetUserPoolMfaConfig"
+        "cognito-idp:GetUserPoolMfaConfig",
+        "dynamodb:DescribeContinuousBackups",
+        "kms:GenerateDataKey",
+        "kms:Encrypt",
+        "kms:Decrypt"
       ],
       "Resource": "*"
     }

@@ -98,6 +98,32 @@ resource "aws_kms_key" "serverless" {
   description             = "Golden Plate v2 serverless data and static asset encryption key."
   enable_key_rotation     = true
   deletion_window_in_days = 30
+
+  # Allow CloudWatch Logs and the AWS account root (via the deploy role) to use
+  # the key; without the logs principal the KMS-encrypted log groups cannot be
+  # created.
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "EnableIAMUserPermissions"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+        Action    = "kms:*"
+        Resource  = "*"
+      },
+      {
+        Sid       = "AllowCloudWatchLogsUse"
+        Effect    = "Allow"
+        Principal = { Service = "logs.${var.aws_region}.amazonaws.com" }
+        Action    = ["kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"]
+        Resource  = "*"
+        Condition = {
+          ArnEquals = { "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:*" }
+        }
+      }
+    ]
+  })
 }
 
 resource "aws_kms_alias" "serverless" {

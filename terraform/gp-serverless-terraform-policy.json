@@ -190,7 +190,9 @@
         "kms:Decrypt",
         "dynamodb:DescribeTimeToLive",
         "dynamodb:UpdateTimeToLive",
-        "dynamodb:ListTagsOfResource"
+        "dynamodb:ListTagsOfResource",
+        "s3:PutObjectTagging",
+        "s3:GetObjectTagging"
       ],
       "Resource": "*"
     }

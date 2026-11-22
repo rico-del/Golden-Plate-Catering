@@ -296,15 +296,7 @@ jobs:
               exit 1
             fi
             if terraform -chdir=terraform/serverless-stack state show 'aws_s3_bucket.serverless_site[0]' >/dev/null 2>&1 && \
-               terraform -chdir=terraform/serverless-stack state pull | python3 -c '
-import json, sys
-state = json.load(sys.stdin)
-for r in state.get("resources", []):
-    if r["type"] == "aws_s3_bucket" and r["name"] == "serverless_site":
-        raise SystemExit(1 if any(i.get("status") == "tainted" for i in r["instances"]) else 0)
-'; then
-              : # not tainted
-            else
+               terraform -chdir=terraform/serverless-stack state pull | python3 -c "import json,sys; s=json.load(sys.stdin); [t for r in s.get('resources',[]) for i in r.get('instances',[]) for t in [(r['type'],r['name'],i.get('status'))] if r['type']=='aws_s3_bucket' and r['name']=='serverless_site' and i.get('status')=='tainted']" | grep -q tainted; then
               echo 'Site bucket tainted by a prior partial apply; untainting in remote state.'
               terraform -chdir=terraform/serverless-stack untaint 'aws_s3_bucket.serverless_site[0]'
             fi

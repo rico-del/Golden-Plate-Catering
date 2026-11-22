@@ -295,11 +295,13 @@ jobs:
               echo 'Refusing apply: v1 resources are present in the v2 state.' >&2
               exit 1
             fi
-            if terraform -chdir=terraform/serverless-stack state show 'aws_s3_bucket.serverless_site[0]' >/dev/null 2>&1 && \
-               terraform -chdir=terraform/serverless-stack state pull | python3 -c "import json,sys; s=json.load(sys.stdin); [t for r in s.get('resources',[]) for i in r.get('instances',[]) for t in [(r['type'],r['name'],i.get('status'))] if r['type']=='aws_s3_bucket' and r['name']=='serverless_site' and i.get('status')=='tainted']" | grep -q tainted; then
-              echo 'Site bucket tainted by a prior partial apply; untainting in remote state.'
-              terraform -chdir=terraform/serverless-stack untaint 'aws_s3_bucket.serverless_site[0]'
-            fi
+            for tainted_addr in $(terraform -chdir=terraform/serverless-stack state pull | python3 -c "import json,sys; s=json.load(sys.stdin); print(' '.join(f\"{r['type']}.{r['name']}[{i.get('index_key', 0)}]\" for r in s.get('resources', []) for i in r.get('instances', []) if i.get('status') == 'tainted'))"); do
+              case "$tainted_addr" in
+                aws_instance*|aws_eip*|mongodbatlas_*) echo "Refusing apply: v1-typed tainted resource $tainted_addr in v2 state." >&2; exit 1 ;;
+                *) echo "Untainting $tainted_addr from a prior partial apply."
+                   terraform -chdir=terraform/serverless-stack untaint "$tainted_addr" ;;
+              esac
+            done
           elif grep -q 'No state file was found' "$RUNNER_TEMP/state-stderr.txt"; then
             echo 'No remote v2 state yet; treating this as the first serverless apply.'
             : > "$RUNNER_TEMP/serverless-state.txt"

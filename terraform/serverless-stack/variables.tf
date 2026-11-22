@@ -69,10 +69,10 @@ variable "serverless_budget_limit_usd" {
 
 variable "serverless_reserved_concurrency" {
   type    = number
-  default = 2
+  default = -1
   validation {
-    condition     = var.serverless_reserved_concurrency >= 1 && var.serverless_reserved_concurrency <= 10
-    error_message = "Reserved concurrency must be from 1 through 10."
+    condition     = var.serverless_reserved_concurrency == -1 || (var.serverless_reserved_concurrency >= 1 && var.serverless_reserved_concurrency <= 10)
+    error_message = "Reserved concurrency must be -1 (unreserved) or from 1 through 10."
   }
 }
 

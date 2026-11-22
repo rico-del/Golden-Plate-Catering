@@ -177,7 +177,12 @@
         "wafv2:ListTagsForResource",
         "wafv2:TagResource",
         "cloudfront:DescribeFunction",
-        "cloudfront:GetFunction"
+        "cloudfront:GetFunction",
+        "kms:CreateGrant",
+        "kms:ListGrants",
+        "kms:RevokeGrant",
+        "cognito-idp:SetUserPoolMfaConfig",
+        "budgets:ListTagsForResource"
       ],
       "Resource": "*"
     }

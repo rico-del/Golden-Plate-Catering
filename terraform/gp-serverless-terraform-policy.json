@@ -189,7 +189,8 @@
         "kms:Encrypt",
         "kms:Decrypt",
         "dynamodb:DescribeTimeToLive",
-        "dynamodb:UpdateTimeToLive"
+        "dynamodb:UpdateTimeToLive",
+        "dynamodb:ListTagsOfResource"
       ],
       "Resource": "*"
     }

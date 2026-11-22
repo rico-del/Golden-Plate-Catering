@@ -60,6 +60,11 @@ resource "aws_s3_bucket" "serverless_site" {
   }
 }
 
+# Explicit untaint helper: after a partial apply failure taints the bucket
+# (e.g. a tagging permission error after successful creation), run
+#   terraform untaint aws_s3_bucket.serverless_site[0]
+# instead of letting Terraform destroy and recreate the bucket.
+
 resource "aws_s3_bucket_public_access_block" "serverless_site" {
   count                   = 1
   bucket                  = aws_s3_bucket.serverless_site[0].id

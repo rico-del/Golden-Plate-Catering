@@ -286,12 +286,27 @@ jobs:
       - name: Verify artifact and isolated state before apply
         run: |
           set -euo pipefail
-          test -s "$RUNNER_TEMP/lambda/serverless-lambda.zip"
           # Empty remote state is valid for the first apply; v1 resources in it are not.
+          # A tainted v2-only site bucket from a partial apply is also acceptable: it is
+          # untainted below so the apply repairs tags instead of destroying the bucket.
+          test -s "$RUNNER_TEMP/lambda/serverless-lambda.zip"
           if terraform -chdir=terraform/serverless-stack state list > "$RUNNER_TEMP/serverless-state.txt" 2>"$RUNNER_TEMP/state-stderr.txt"; then
             if grep -Eq 'aws_instance|aws_eip|mongodbatlas_' "$RUNNER_TEMP/serverless-state.txt"; then
               echo 'Refusing apply: v1 resources are present in the v2 state.' >&2
               exit 1
+            fi
+            if terraform -chdir=terraform/serverless-stack state show 'aws_s3_bucket.serverless_site[0]' >/dev/null 2>&1 && \
+               terraform -chdir=terraform/serverless-stack state pull | python3 -c '
+import json, sys
+state = json.load(sys.stdin)
+for r in state.get("resources", []):
+    if r["type"] == "aws_s3_bucket" and r["name"] == "serverless_site":
+        raise SystemExit(1 if any(i.get("status") == "tainted" for i in r["instances"]) else 0)
+'; then
+              : # not tainted
+            else
+              echo 'Site bucket tainted by a prior partial apply; untainting in remote state.'
+              terraform -chdir=terraform/serverless-stack untaint 'aws_s3_bucket.serverless_site[0]'
             fi
           elif grep -q 'No state file was found' "$RUNNER_TEMP/state-stderr.txt"; then
             echo 'No remote v2 state yet; treating this as the first serverless apply.'

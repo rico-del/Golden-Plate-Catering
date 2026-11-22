@@ -192,7 +192,13 @@
         "dynamodb:UpdateTimeToLive",
         "dynamodb:ListTagsOfResource",
         "s3:PutObjectTagging",
-        "s3:GetObjectTagging"
+        "s3:GetObjectTagging",
+        "lambda:PutFunctionConcurrency",
+        "lambda:DeleteFunctionConcurrency",
+        "lambda:GetFunctionConcurrency",
+        "lambda:ListTags",
+        "lambda:UntagResource",
+        "lambda:GetFunctionConfiguration"
       ],
       "Resource": "*"
     }

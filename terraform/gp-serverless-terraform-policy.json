@@ -182,7 +182,8 @@
         "kms:ListGrants",
         "kms:RevokeGrant",
         "cognito-idp:SetUserPoolMfaConfig",
-        "budgets:ListTagsForResource"
+        "budgets:ListTagsForResource",
+        "cognito-idp:GetUserPoolMfaConfig"
       ],
       "Resource": "*"
     }

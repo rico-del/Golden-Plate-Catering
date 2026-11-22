@@ -187,7 +187,9 @@
         "dynamodb:DescribeContinuousBackups",
         "kms:GenerateDataKey",
         "kms:Encrypt",
-        "kms:Decrypt"
+        "kms:Decrypt",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:UpdateTimeToLive"
       ],
       "Resource": "*"
     }

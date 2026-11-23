@@ -205,7 +205,14 @@
         "apigateway:DELETE",
         "apigatewayv2:TagResource",
         "apigatewayv2:UntagResource",
-        "apigatewayv2:DELETE"
+        "apigatewayv2:DELETE",
+        "logs:CreateLogDelivery",
+        "logs:DeleteLogDelivery",
+        "logs:PutResourcePolicy",
+        "logs:DescribeResourcePolicies",
+        "logs:GetLogDelivery",
+        "logs:ListLogDeliveries",
+        "logs:UpdateLogDelivery"
       ],
       "Resource": "*"
     }

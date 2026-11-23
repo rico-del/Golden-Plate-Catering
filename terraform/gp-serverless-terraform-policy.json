@@ -212,7 +212,8 @@
         "logs:DescribeResourcePolicies",
         "logs:GetLogDelivery",
         "logs:ListLogDeliveries",
-        "logs:UpdateLogDelivery"
+        "logs:UpdateLogDelivery",
+        "cloudfront:CreateDistributionWithTags"
       ],
       "Resource": "*"
     }

@@ -213,7 +213,8 @@
         "logs:GetLogDelivery",
         "logs:ListLogDeliveries",
         "logs:UpdateLogDelivery",
-        "cloudfront:CreateDistributionWithTags"
+        "cloudfront:CreateDistributionWithTags",
+        "cloudfront:UntagResource"
       ],
       "Resource": "*"
     }

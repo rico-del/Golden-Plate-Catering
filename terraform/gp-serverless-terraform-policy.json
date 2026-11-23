@@ -214,7 +214,8 @@
         "logs:ListLogDeliveries",
         "logs:UpdateLogDelivery",
         "cloudfront:CreateDistributionWithTags",
-        "cloudfront:UntagResource"
+        "cloudfront:UntagResource",
+        "cloudfront:TestFunction"
       ],
       "Resource": "*"
     }

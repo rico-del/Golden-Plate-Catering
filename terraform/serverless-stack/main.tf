@@ -705,7 +705,7 @@ resource "aws_iam_role_policy" "serverless_deploy" {
       },
       {
         Effect   = "Allow"
-        Action   = ["lambda:UpdateFunctionCode", "lambda:PublishVersion", "lambda:GetFunctionConfiguration"]
+        Action   = ["lambda:UpdateFunctionCode", "lambda:PublishVersion", "lambda:GetFunction", "lambda:GetFunctionConfiguration"]
         Resource = [for function in aws_lambda_function.serverless : function.arn]
       }
     ]

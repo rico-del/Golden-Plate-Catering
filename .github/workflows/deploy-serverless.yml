@@ -333,6 +333,20 @@ jobs:
           echo "site_url=$site_url" >> "$GITHUB_OUTPUT"
           echo "bucket=$bucket" >> "$GITHUB_OUTPUT"
           echo "distribution=$distribution" >> "$GITHUB_OUTPUT"
+      - name: Configure least-privilege credentials for artifact publishing
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.SERVERLESS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.SERVERLESS_AWS_REGION }}
+          audience: sts.amazonaws.com
+      - name: Verify least-privilege deployment identity
+        run: |
+          set -euo pipefail
+          principal="$(aws sts get-caller-identity --query Arn --output text)"
+          [[ "$principal" == *":assumed-role/golden-plate-serverless-github-deploy/"* ]] || {
+            echo 'Refusing artifact publish: the serverless least-privilege deploy role was not assumed.' >&2
+            exit 1
+          }
       - name: Publish Lambda code
         env:
           AWS_REGION: ${{ vars.SERVERLESS_AWS_REGION }}
@@ -347,8 +361,8 @@ jobs:
           done
       - name: Build and publish static site safely
         env:
-          SITE_BUCKET: ${{ vars.SERVERLESS_SITE_BUCKET_NAME }}
-          DISTRIBUTION_ID: ${{ steps.outputs.distribution }}
+          SITE_BUCKET: ${{ steps.outputs.outputs.bucket }}
+          DISTRIBUTION_ID: ${{ steps.outputs.outputs.distribution }}
         run: |
           set -euo pipefail
           [[ -d public && -n "$SITE_BUCKET" && -n "$DISTRIBUTION_ID" ]]
@@ -357,7 +371,7 @@ jobs:
           aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths '/*' >/dev/null
       - name: Verify CloudFront, health, and API response
         env:
-          SITE_URL: ${{ steps.outputs.site_url }}
+          SITE_URL: ${{ steps.outputs.outputs.site_url }}
         run: |
           set -euo pipefail
           for attempt in {1..30}; do

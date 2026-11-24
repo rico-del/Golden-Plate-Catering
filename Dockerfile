@@ -8,7 +8,11 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+# npm is needed only while building the image.  Remove its global installation
+# afterwards so the runtime image contains only the Node runtime and app code.
+RUN npm ci --omit=dev \
+    && npm cache clean --force \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 COPY --chown=node:node server.mjs ./server.mjs
 COPY --chown=node:node public ./public

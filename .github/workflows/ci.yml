@@ -26,6 +26,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Lambda dependencies
+        run: npm ci --prefix lambda
+
       - name: Check, build, and test
         run: |
           npm run check

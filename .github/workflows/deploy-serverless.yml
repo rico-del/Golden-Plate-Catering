@@ -340,11 +340,20 @@ jobs:
           aws-region: ${{ vars.SERVERLESS_AWS_REGION }}
           audience: sts.amazonaws.com
       - name: Verify least-privilege deployment identity
+        env:
+          EXPECTED_DEPLOY_ROLE_ARN: ${{ vars.SERVERLESS_DEPLOY_ROLE_ARN }}
         run: |
           set -euo pipefail
-          principal="$(aws sts get-caller-identity --query Arn --output text)"
-          [[ "$principal" == *":assumed-role/golden-plate-serverless-github-deploy/"* ]] || {
-            echo 'Refusing artifact publish: the serverless least-privilege deploy role was not assumed.' >&2
+          if [[ ! "$EXPECTED_DEPLOY_ROLE_ARN" =~ ^arn:aws:iam::([0-9]{12}):role/.+ ]]; then
+            echo 'Refusing artifact publish: configured serverless deploy role ARN is invalid.' >&2
+            exit 1
+          fi
+          expected_account="${BASH_REMATCH[1]}"
+          expected_role_name="${EXPECTED_DEPLOY_ROLE_ARN##*/}"
+          identity="$(aws sts get-caller-identity --query '[Account,Arn]' --output text)"
+          read -r actual_account principal <<< "$identity"
+          [[ "$actual_account" == "$expected_account" && "$principal" == *":assumed-role/${expected_role_name}/"* ]] || {
+            echo 'Refusing artifact publish: active AWS identity does not match SERVERLESS_DEPLOY_ROLE_ARN.' >&2
             exit 1
           }
       - name: Publish Lambda code

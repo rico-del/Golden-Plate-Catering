@@ -9,6 +9,12 @@ locals {
     enquiry_submit = "golden-plate-enquiry-submit"
     admin          = "golden-plate-admin"
   }
+  serverless_handler_names = {
+    reviews_read   = "reviewsRead"
+    review_submit  = "reviewSubmit"
+    enquiry_submit = "enquirySubmit"
+    admin          = "admin"
+  }
   cognito_domain             = "${var.cognito_domain_prefix}.auth.${var.aws_region}.amazoncognito.com"
   cognito_issuer             = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.serverless[0].id}"
   serverless_lambda_artifact = abspath(var.lambda_package_path)
@@ -388,7 +394,7 @@ resource "aws_lambda_function" "serverless" {
   function_name                  = each.value
   role                           = aws_iam_role.lambda[each.key].arn
   runtime                        = "nodejs22.x"
-  handler                        = "src/handlers.${each.key}"
+  handler                        = "src/handlers.${local.serverless_handler_names[each.key]}"
   filename                       = local.serverless_lambda_artifact
   source_code_hash               = filebase64sha256(local.serverless_lambda_artifact)
   timeout                        = 10
@@ -673,8 +679,11 @@ resource "aws_iam_role" "serverless_deploy" {
       Action = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = {
-          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          "token.actions.githubusercontent.com:sub" = "repo:rico-del/Golden-Plate-Catering:environment:serverless-production"
+          "token.actions.githubusercontent.com:aud"          = "sts.amazonaws.com"
+          "token.actions.githubusercontent.com:workflow_ref" = "rico-del/Golden-Plate-Catering/.github/workflows/deploy-serverless.yml@refs/heads/main"
+        }
+        StringLike = {
+          "token.actions.githubusercontent.com:sub" = "repo:rico-del@163041797/Golden-Plate-Catering@1435679351:environment:serverless-production"
         }
       }
     }]

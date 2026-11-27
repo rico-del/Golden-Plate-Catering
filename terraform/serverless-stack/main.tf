@@ -679,9 +679,11 @@ resource "aws_iam_role" "serverless_deploy" {
       Action = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = {
-          "token.actions.githubusercontent.com:aud"          = "sts.amazonaws.com"
-          "token.actions.githubusercontent.com:sub"          = "repo:rico-del/Golden-Plate-Catering:environment:serverless-production"
-          "token.actions.githubusercontent.com:workflow_ref" = "rico-del/Golden-Plate-Catering/.github/workflows/deploy-serverless.yml@refs/heads/main"
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          "token.actions.githubusercontent.com:sub" = "repo:rico-del/Golden-Plate-Catering:environment:serverless-production"
+        }
+        StringLike = {
+          "token.actions.githubusercontent.com:workflow_ref" = "rico-del/Golden-Plate-Catering/.github/workflows/*@refs/heads/main"
         }
       }
     }]

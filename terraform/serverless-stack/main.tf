@@ -708,6 +708,11 @@ resource "aws_iam_role_policy" "serverless_deploy" {
       },
       {
         Effect   = "Allow"
+        Action   = ["kms:GenerateDataKey", "kms:Decrypt", "kms:DescribeKey"]
+        Resource = [aws_kms_key.serverless.arn]
+      },
+      {
+        Effect   = "Allow"
         Action   = ["cloudfront:CreateInvalidation"]
         Resource = [aws_cloudfront_distribution.serverless[0].arn]
       },

@@ -569,7 +569,9 @@ resource "aws_iam_role" "serverless_deploy" {
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          "token.actions.githubusercontent.com:sub" = "repo:rico-del/Golden-Plate-Catering:environment:serverless-production"
+        }
+        StringLike = {
+          "token.actions.githubusercontent.com:sub" = "repo:rico-del@163041797/Golden-Plate-Catering@1435679351:environment:serverless-production"
         }
       }
     }]

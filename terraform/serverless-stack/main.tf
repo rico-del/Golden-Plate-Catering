@@ -682,8 +682,7 @@ resource "aws_iam_role" "serverless_deploy" {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
         }
         StringLike = {
-          "token.actions.githubusercontent.com:sub"          = "repo:rico-del@163041797/Golden-Plate-Catering@1435679351:environment:serverless-production"
-          "token.actions.githubusercontent.com:workflow_ref" = "rico-del/Golden-Plate-Catering/.github/workflows/*@refs/heads/main"
+          "token.actions.githubusercontent.com:sub" = "repo:rico-del@163041797/Golden-Plate-Catering@1435679351:environment:serverless-production"
         }
       }
     }]

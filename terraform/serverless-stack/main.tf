@@ -55,6 +55,14 @@ locals {
       }
     ]
   }
+
+  # Every function touches the KMS-encrypted DynamoDB table, so all four
+  # execution roles need the crypto primitives for the customer-managed key.
+  lambda_kms_statements = [{
+    Effect   = "Allow"
+    Action   = ["kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
+    Resource = [aws_kms_key.serverless.arn]
+  }]
 }
 
 resource "aws_s3_bucket" "serverless_site" {
@@ -126,6 +134,19 @@ resource "aws_kms_key" "serverless" {
         Resource  = "*"
         Condition = {
           ArnEquals = { "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:*" }
+        }
+      },
+      {
+        # CloudFront OAC must be able to decrypt SSE-KMS objects it serves
+        # from the site bucket.
+        Principal = { Service = "cloudfront.amazonaws.com" }
+        Action    = ["kms:Decrypt"]
+        Resource  = "*"
+        Condition = {
+          StringEquals = {
+            "AWS:SourceArn"   = "arn:aws:cloudfront::${data.aws_caller_identity.current.account_id}:distribution/${aws_cloudfront_distribution.serverless[0].id}"
+            "kms:ViaService"  = "s3.${var.aws_region}.amazonaws.com"
+          }
         }
       }
     ]
@@ -376,6 +397,16 @@ resource "aws_iam_role_policy" "lambda_logs" {
       Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
       Resource = ["${aws_cloudwatch_log_group.lambda[each.key].arn}:*"]
     }]
+  })
+}
+
+resource "aws_iam_role_policy" "lambda_kms" {
+  for_each = local.serverless_function_names
+  name     = "${each.value}-kms"
+  role     = aws_iam_role.lambda[each.key].id
+  policy = jsonencode({
+    Version   = "2012-10-17"
+    Statement = local.lambda_kms_statements
   })
 }
 

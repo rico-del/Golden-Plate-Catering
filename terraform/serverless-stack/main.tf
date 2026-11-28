@@ -55,6 +55,14 @@ locals {
       }
     ]
   }
+
+  # DynamoDB is encrypted with the customer-managed KMS key, so every function
+  # that touches the table needs the crypto primitives for that key.
+  lambda_kms_statements = [{
+    Effect   = "Allow"
+    Action   = ["kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
+    Resource = [aws_kms_key.serverless.arn]
+  }]
 }
 
 resource "aws_s3_bucket" "serverless_site" {
@@ -376,6 +384,16 @@ resource "aws_iam_role_policy" "lambda_logs" {
       Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
       Resource = ["${aws_cloudwatch_log_group.lambda[each.key].arn}:*"]
     }]
+  })
+}
+
+resource "aws_iam_role_policy" "lambda_kms" {
+  for_each = local.serverless_function_names
+  name     = "${each.value}-kms"
+  role     = aws_iam_role.lambda[each.key].id
+  policy = jsonencode({
+    Version   = "2012-10-17"
+    Statement = local.lambda_kms_statements
   })
 }
 

@@ -56,8 +56,8 @@ locals {
     ]
   }
 
-  # DynamoDB is encrypted with the customer-managed KMS key, so every function
-  # that touches the table needs the crypto primitives for that key.
+  # Every function touches the KMS-encrypted DynamoDB table, so all four
+  # execution roles need the crypto primitives for the customer-managed key.
   lambda_kms_statements = [{
     Effect   = "Allow"
     Action   = ["kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
@@ -134,6 +134,19 @@ resource "aws_kms_key" "serverless" {
         Resource  = "*"
         Condition = {
           ArnEquals = { "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:*" }
+        }
+      },
+      {
+        # CloudFront OAC must be able to decrypt SSE-KMS objects it serves
+        # from the site bucket.
+        Principal = { Service = "cloudfront.amazonaws.com" }
+        Action    = ["kms:Decrypt"]
+        Resource  = "*"
+        Condition = {
+          StringEquals = {
+            "AWS:SourceArn"   = "arn:aws:cloudfront::${data.aws_caller_identity.current.account_id}:distribution/${aws_cloudfront_distribution.serverless[0].id}"
+            "kms:ViaService"  = "s3.${var.aws_region}.amazonaws.com"
+          }
         }
       }
     ]

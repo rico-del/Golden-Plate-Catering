@@ -136,16 +136,19 @@ resource "aws_kms_key" "serverless" {
           ArnEquals = { "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:*" }
         }
       },
+      },
       {
-        # CloudFront OAC must be able to decrypt SSE-KMS objects it serves
-        # from the site bucket.
+        # CloudFront OAC must be able to decrypt SSE-KMS objects it serves from
+        # the site bucket. The distribution ID is pinned by value, not by
+        # reference, to avoid a dependency cycle (the distribution depends on
+        # this key). Keep the ID in sync with aws_cloudfront_distribution.serverless.
         Principal = { Service = "cloudfront.amazonaws.com" }
         Action    = ["kms:Decrypt"]
         Resource  = "*"
         Condition = {
           StringEquals = {
-            "AWS:SourceArn"   = "arn:aws:cloudfront::${data.aws_caller_identity.current.account_id}:distribution/${aws_cloudfront_distribution.serverless[0].id}"
-            "kms:ViaService"  = "s3.${var.aws_region}.amazonaws.com"
+            "AWS:SourceArn"  = "arn:aws:cloudfront::554013701313:distribution/E7PB44DZUL5IY"
+            "kms:ViaService" = "s3.${var.aws_region}.amazonaws.com"
           }
         }
       }
